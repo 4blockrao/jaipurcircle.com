@@ -45,6 +45,10 @@ export default async function CategoryPage({
 
   if (!category) return notFound();
 
+  /* =========================
+     EVENTS FETCH
+     ========================= */
+
   const { data: eventLinks } = await supabase
     .from('event_categories')
     .select('event_id')
@@ -65,20 +69,34 @@ export default async function CategoryPage({
     rawEvents = data || [];
   }
 
+  /* =========================
+     LOCALITIES FETCH (NEW)
+     ========================= */
+
+  const { data: localities } = await supabase
+    .from('localities')
+    .select('*')
+    .limit(6);
+
+  const now = new Date();
+
   const events = rawEvents.filter(
     (e: any) => !e.editorial_status || e.editorial_status === 'published'
   );
 
-  const itemListSchema = {
-    '@context': 'https://schema.org',
-    '@type': 'ItemList',
-    itemListElement: events.map((e: any, i: number) => ({
-      '@type': 'ListItem',
-      position: i + 1,
-      name: e.title,
-      url: `https://www.jaipurcircle.com/events/${e.slug}`,
-    })),
-  };
+  const upcomingEvents = events.filter((e: any) => {
+    const date = new Date(e.start_time || e.start_date);
+    return date >= now;
+  });
+
+  const pastEvents = events.filter((e: any) => {
+    const date = new Date(e.start_time || e.start_date);
+    return date < now;
+  });
+
+  /* =========================
+     SCHEMA
+     ========================= */
 
   const collectionSchema = {
     '@context': 'https://schema.org',
@@ -87,30 +105,124 @@ export default async function CategoryPage({
     url: `https://www.jaipurcircle.com/categories/${category.slug}`,
   };
 
+  const itemListSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    itemListElement: upcomingEvents.map((e: any, i: number) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: e.title,
+      url: `https://www.jaipurcircle.com/events/${e.slug}`,
+    })),
+  };
+
   return (
     <main className="max-w-6xl mx-auto px-4 md:px-6 py-10">
 
-      {/* ✅ SCHEMA */}
+      {/* SCHEMA */}
       <script type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionSchema) }} />
       <script type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }} />
 
+      {/* TITLE */}
       <section className="mb-10">
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
           {category.name} in Jaipur
         </h1>
 
-        <p className="mt-3 text-gray-600">
-          Discover the best {category.name.toLowerCase()} in Jaipur.
+        <p className="mt-3 text-gray-600 max-w-3xl leading-relaxed">
+          Discover the best {category.name.toLowerCase()} events happening across Jaipur.
+          Explore upcoming shows, trending experiences, and popular venues.
         </p>
       </section>
 
-      <section>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {events.map((event: any) => (
-            <EventCard key={event.id} event={event} />
-          ))}
+      {/* 🔗 NAV */}
+      <section className="mb-8">
+        <div className="flex flex-wrap gap-3 text-sm">
+
+          <a href="/events" className="px-4 py-2 bg-gray-100 rounded-full">
+            All Events
+          </a>
+
+          <a href="/categories" className="px-4 py-2 bg-gray-100 rounded-full">
+            All Categories
+          </a>
+
+        </div>
+      </section>
+
+      {/* UPCOMING EVENTS */}
+      {upcomingEvents.length > 0 && (
+        <section className="mb-12">
+          <h2 className="text-xl font-semibold mb-6">
+            Upcoming {category.name}
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {upcomingEvents.map((event: any) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 🔥 LOCALITY LOOP (CRITICAL) */}
+      {localities && localities.length > 0 && (
+        <section className="mb-12">
+          <h2 className="text-lg font-semibold mb-4">
+            Explore {category.name} by Area
+          </h2>
+
+          <div className="flex flex-wrap gap-3 text-sm">
+            {localities.map((loc: any) => (
+              <a
+                key={loc.id}
+                href={`/events-in/${category.slug}/${loc.slug}`}
+                className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 transition"
+              >
+                {category.name} in {loc.name}
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* PAST EVENTS */}
+      {pastEvents.length > 0 && (
+        <section className="mb-12">
+          <h2 className="text-xl font-semibold mb-6">
+            Past {category.name}
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {pastEvents.slice(0, 9).map((event: any) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 🔗 SEO LINKS */}
+      <section className="mt-14">
+        <h2 className="text-lg font-semibold mb-4">
+          Explore More in Jaipur
+        </h2>
+
+        <div className="flex flex-wrap gap-3 text-sm">
+
+          <a href="/jaipur/vaishali-nagar" className="px-4 py-2 bg-gray-100 rounded-full">
+            Vaishali Nagar Events
+          </a>
+
+          <a href="/jaipur/c-scheme" className="px-4 py-2 bg-gray-100 rounded-full">
+            C-Scheme Events
+          </a>
+
+          <a href="/jaipur/malviya-nagar" className="px-4 py-2 bg-gray-100 rounded-full">
+            Malviya Nagar Events
+          </a>
+
         </div>
       </section>
 
