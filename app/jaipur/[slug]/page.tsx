@@ -45,9 +45,6 @@ export default async function LocalityPage({
 
   if (!locality) return notFound();
 
-  /* =========================
-     EVENTS FETCH
-     ========================= */
   const { data: rawEvents } = await supabase
     .from('events')
     .select('*')
@@ -58,8 +55,7 @@ export default async function LocalityPage({
   const now = new Date();
 
   const events = (rawEvents || []).filter(
-    (e: any) =>
-      !e.editorial_status || e.editorial_status === 'published'
+    (e: any) => !e.editorial_status || e.editorial_status === 'published'
   );
 
   const upcomingEvents = events.filter((e: any) => {
@@ -72,12 +68,43 @@ export default async function LocalityPage({
     return date < now;
   });
 
+  /* =========================
+     SCHEMA
+     ========================= */
+
+  const placeSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Place',
+    name: `${locality.name}, Jaipur`,
+    address: {
+      '@type': 'PostalAddress',
+      addressLocality: locality.name,
+      addressRegion: 'Rajasthan',
+      addressCountry: 'India',
+    },
+    url: `https://www.jaipurcircle.com/jaipur/${locality.slug}`,
+  };
+
+  const itemListSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    itemListElement: upcomingEvents.map((e: any, i: number) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: e.title,
+      url: `https://www.jaipurcircle.com/events/${e.slug}`,
+    })),
+  };
+
   return (
     <main className="max-w-6xl mx-auto px-4 md:px-6 py-10">
 
-      {/* =========================
-         HERO / TITLE
-         ========================= */}
+      {/* ✅ SCHEMA */}
+      <script type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(placeSchema) }} />
+      <script type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }} />
+
       <section className="mb-10">
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
           Things to Do in {locality.name}, Jaipur
@@ -85,34 +112,9 @@ export default async function LocalityPage({
 
         <p className="mt-3 text-gray-600 max-w-3xl leading-relaxed">
           Explore events, nightlife, workshops, and experiences happening in {locality.name}.
-          Discover what’s trending, upcoming, and worth exploring.
         </p>
       </section>
 
-      {/* =========================
-         INTERNAL NAV
-         ========================= */}
-      <section className="mb-8">
-        <div className="flex flex-wrap gap-3 text-sm">
-
-          <a href="/events" className="px-4 py-2 bg-gray-100 rounded-full">
-            All Events
-          </a>
-
-          <a href="/categories" className="px-4 py-2 bg-gray-100 rounded-full">
-            Categories
-          </a>
-
-          <a href={`/events?locality=${slug}`} className="px-4 py-2 bg-gray-100 rounded-full">
-            Filter This Area
-          </a>
-
-        </div>
-      </section>
-
-      {/* =========================
-         UPCOMING EVENTS
-         ========================= */}
       {upcomingEvents.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-6">
@@ -127,40 +129,8 @@ export default async function LocalityPage({
         </section>
       )}
 
-      {/* =========================
-         CATEGORY LINKS
-         ========================= */}
-      <section className="mb-12">
-        <h2 className="text-lg font-semibold mb-4">
-          Explore by Category in {locality.name}
-        </h2>
-
-        <div className="flex flex-wrap gap-3 text-sm">
-
-          <a href={`/events-in/comedy-shows/${slug}`} className="px-4 py-2 bg-gray-100 rounded-full">
-            Comedy Shows
-          </a>
-
-          <a href={`/events-in/music-events/${slug}`} className="px-4 py-2 bg-gray-100 rounded-full">
-            Music Events
-          </a>
-
-          <a href={`/events-in/workshops/${slug}`} className="px-4 py-2 bg-gray-100 rounded-full">
-            Workshops
-          </a>
-
-          <a href={`/events-in/nightlife/${slug}`} className="px-4 py-2 bg-gray-100 rounded-full">
-            Nightlife
-          </a>
-
-        </div>
-      </section>
-
-      {/* =========================
-         PAST EVENTS
-         ========================= */}
       {pastEvents.length > 0 && (
-        <section className="mb-12">
+        <section>
           <h2 className="text-xl font-semibold mb-6">
             Past Events in {locality.name}
           </h2>
@@ -172,48 +142,6 @@ export default async function LocalityPage({
           </div>
         </section>
       )}
-
-      {/* =========================
-         FALLBACK
-         ========================= */}
-      {events.length === 0 && (
-        <section>
-          <div className="rounded-2xl border border-gray-200 bg-white p-6">
-            <p className="text-gray-700 font-medium">
-              No events found in {locality.name} right now.
-            </p>
-
-            <p className="text-gray-500 mt-2">
-              Try exploring all Jaipur events or nearby areas.
-            </p>
-          </div>
-        </section>
-      )}
-
-      {/* =========================
-         SEO BOOST LINKS
-         ========================= */}
-      <section className="mt-14">
-        <h2 className="text-lg font-semibold mb-4">
-          Explore More in Jaipur
-        </h2>
-
-        <div className="flex flex-wrap gap-3 text-sm">
-
-          <a href="/events" className="px-4 py-2 bg-gray-100 rounded-full">
-            All Jaipur Events
-          </a>
-
-          <a href="/categories/comedy-shows" className="px-4 py-2 bg-gray-100 rounded-full">
-            Comedy Shows Jaipur
-          </a>
-
-          <a href="/categories/music-events" className="px-4 py-2 bg-gray-100 rounded-full">
-            Music Events Jaipur
-          </a>
-
-        </div>
-      </section>
 
     </main>
   );

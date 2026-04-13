@@ -91,19 +91,25 @@ export default async function EventsHubPage({
     .order('start_time', { ascending: true });
 
   if (resolvedLocality) {
-    if (resolvedLocality.id) {
-      eventsQuery = eventsQuery.eq('locality_id', resolvedLocality.id);
-    } else if (resolvedLocality.slug) {
-      eventsQuery = eventsQuery.eq('locality', resolvedLocality.slug);
-    }
+    eventsQuery = eventsQuery.eq('locality_id', resolvedLocality.id);
   }
 
   if (eventIdsByCategory) {
     if (eventIdsByCategory.length === 0) {
       const events: any[] = [];
+      const itemListSchema = {
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        itemListElement: [] as any[],
+      };
 
       return (
         <main className="max-w-6xl mx-auto px-4 md:px-6 py-10">
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }}
+          />
+
           <section className="mb-10">
             <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
               Events in Jaipur
@@ -217,6 +223,17 @@ export default async function EventsHubPage({
       return aDate - bDate;
     });
 
+  const itemListSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    itemListElement: events.map((event: any, index: number) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: event.title,
+      url: `https://www.jaipurcircle.com/events/${event.slug}`,
+    })),
+  };
+
   const pageTitle =
     resolvedCategory && resolvedLocality
       ? `${resolvedCategory.name} in ${resolvedLocality.name}, Jaipur`
@@ -237,6 +254,11 @@ export default async function EventsHubPage({
 
   return (
     <main className="max-w-6xl mx-auto px-4 md:px-6 py-10">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }}
+      />
+
       <section className="mb-10">
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
           {pageTitle}
