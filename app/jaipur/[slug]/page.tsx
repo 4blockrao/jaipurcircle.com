@@ -1,6 +1,10 @@
 import { notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import EventCard from '@/components/EventCard';
+import {
+  buildCategoryLinks,
+  buildHybridLinksForLocality,
+} from '@/lib/internal-linking';
 
 export async function generateMetadata({
   params,
@@ -55,7 +59,7 @@ export default async function LocalityPage({
   const { data: categories } = await supabase
     .from('categories')
     .select('*')
-    .limit(6);
+    .limit(8);
 
   const now = new Date();
 
@@ -72,10 +76,6 @@ export default async function LocalityPage({
     const date = new Date(e.start_time || e.start_date);
     return date < now;
   });
-
-  /* =========================
-     SCHEMA
-     ========================= */
 
   const placeSchema = {
     '@context': 'https://schema.org',
@@ -101,16 +101,20 @@ export default async function LocalityPage({
     })),
   };
 
+  const categoryLinks = buildCategoryLinks(categories || []);
+  const hybridLinks = buildHybridLinksForLocality(locality, categories || []);
+
   return (
     <main className="max-w-6xl mx-auto px-4 md:px-6 py-10">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(placeSchema) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }}
+      />
 
-      {/* SCHEMA */}
-      <script type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(placeSchema) }} />
-      <script type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }} />
-
-      {/* HERO */}
       <section className="mb-10">
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
           Things to Do in {locality.name}, Jaipur
@@ -122,22 +126,17 @@ export default async function LocalityPage({
         </p>
       </section>
 
-      {/* 🔗 INTERNAL NAV (CRITICAL) */}
       <section className="mb-8">
         <div className="flex flex-wrap gap-3 text-sm">
-
           <a href="/events" className="px-4 py-2 bg-gray-100 rounded-full">
             All Jaipur Events
           </a>
-
           <a href="/categories" className="px-4 py-2 bg-gray-100 rounded-full">
             All Categories
           </a>
-
         </div>
       </section>
 
-      {/* UPCOMING EVENTS */}
       {upcomingEvents.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-6">
@@ -152,28 +151,26 @@ export default async function LocalityPage({
         </section>
       )}
 
-      {/* 🔥 CATEGORY LOOP (VERY IMPORTANT) */}
-      {categories && categories.length > 0 && (
+      {hybridLinks.length > 0 && (
         <section className="mb-12">
           <h2 className="text-lg font-semibold mb-4">
             Explore by Category in {locality.name}
           </h2>
 
           <div className="flex flex-wrap gap-3 text-sm">
-            {categories.map((cat: any) => (
+            {hybridLinks.map((link) => (
               <a
-                key={cat.id}
-                href={`/events-in/${cat.slug}/${locality.slug}`}
+                key={link.href}
+                href={link.href}
                 className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 transition"
               >
-                {cat.name} in {locality.name}
+                {link.label}
               </a>
             ))}
           </div>
         </section>
       )}
 
-      {/* PAST EVENTS */}
       {pastEvents.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-6">
@@ -188,29 +185,19 @@ export default async function LocalityPage({
         </section>
       )}
 
-      {/* 🔗 SEO BOOST LINKS */}
       <section className="mt-14">
         <h2 className="text-lg font-semibold mb-4">
           Explore More in Jaipur
         </h2>
 
         <div className="flex flex-wrap gap-3 text-sm">
-
-          <a href="/categories/comedy-shows" className="px-4 py-2 bg-gray-100 rounded-full">
-            Comedy Shows Jaipur
-          </a>
-
-          <a href="/categories/music-events" className="px-4 py-2 bg-gray-100 rounded-full">
-            Music Events Jaipur
-          </a>
-
-          <a href="/categories/workshops" className="px-4 py-2 bg-gray-100 rounded-full">
-            Workshops Jaipur
-          </a>
-
+          {categoryLinks.slice(0, 3).map((link) => (
+            <a key={link.href} href={link.href} className="px-4 py-2 bg-gray-100 rounded-full">
+              {link.label} Jaipur
+            </a>
+          ))}
         </div>
       </section>
-
     </main>
   );
 }

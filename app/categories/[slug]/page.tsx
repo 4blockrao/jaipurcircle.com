@@ -1,6 +1,10 @@
 import { notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import EventCard from '@/components/EventCard';
+import {
+  buildHybridLinksForCategory,
+  buildLocalityLinks,
+} from '@/lib/internal-linking';
 
 export async function generateMetadata({
   params,
@@ -45,10 +49,6 @@ export default async function CategoryPage({
 
   if (!category) return notFound();
 
-  /* =========================
-     EVENTS FETCH
-     ========================= */
-
   const { data: eventLinks } = await supabase
     .from('event_categories')
     .select('event_id')
@@ -69,14 +69,10 @@ export default async function CategoryPage({
     rawEvents = data || [];
   }
 
-  /* =========================
-     LOCALITIES FETCH (NEW)
-     ========================= */
-
   const { data: localities } = await supabase
     .from('localities')
     .select('*')
-    .limit(6);
+    .limit(8);
 
   const now = new Date();
 
@@ -93,10 +89,6 @@ export default async function CategoryPage({
     const date = new Date(e.start_time || e.start_date);
     return date < now;
   });
-
-  /* =========================
-     SCHEMA
-     ========================= */
 
   const collectionSchema = {
     '@context': 'https://schema.org',
@@ -116,16 +108,20 @@ export default async function CategoryPage({
     })),
   };
 
+  const localityLinks = buildLocalityLinks(localities || []);
+  const hybridLinks = buildHybridLinksForCategory(category, localities || []);
+
   return (
     <main className="max-w-6xl mx-auto px-4 md:px-6 py-10">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionSchema) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }}
+      />
 
-      {/* SCHEMA */}
-      <script type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionSchema) }} />
-      <script type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }} />
-
-      {/* TITLE */}
       <section className="mb-10">
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
           {category.name} in Jaipur
@@ -137,22 +133,17 @@ export default async function CategoryPage({
         </p>
       </section>
 
-      {/* 🔗 NAV */}
       <section className="mb-8">
         <div className="flex flex-wrap gap-3 text-sm">
-
           <a href="/events" className="px-4 py-2 bg-gray-100 rounded-full">
             All Events
           </a>
-
           <a href="/categories" className="px-4 py-2 bg-gray-100 rounded-full">
             All Categories
           </a>
-
         </div>
       </section>
 
-      {/* UPCOMING EVENTS */}
       {upcomingEvents.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-6">
@@ -167,28 +158,26 @@ export default async function CategoryPage({
         </section>
       )}
 
-      {/* 🔥 LOCALITY LOOP (CRITICAL) */}
-      {localities && localities.length > 0 && (
+      {hybridLinks.length > 0 && (
         <section className="mb-12">
           <h2 className="text-lg font-semibold mb-4">
             Explore {category.name} by Area
           </h2>
 
           <div className="flex flex-wrap gap-3 text-sm">
-            {localities.map((loc: any) => (
+            {hybridLinks.map((link) => (
               <a
-                key={loc.id}
-                href={`/events-in/${category.slug}/${loc.slug}`}
+                key={link.href}
+                href={link.href}
                 className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 transition"
               >
-                {category.name} in {loc.name}
+                {link.label}
               </a>
             ))}
           </div>
         </section>
       )}
 
-      {/* PAST EVENTS */}
       {pastEvents.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-6">
@@ -203,29 +192,19 @@ export default async function CategoryPage({
         </section>
       )}
 
-      {/* 🔗 SEO LINKS */}
       <section className="mt-14">
         <h2 className="text-lg font-semibold mb-4">
           Explore More in Jaipur
         </h2>
 
         <div className="flex flex-wrap gap-3 text-sm">
-
-          <a href="/jaipur/vaishali-nagar" className="px-4 py-2 bg-gray-100 rounded-full">
-            Vaishali Nagar Events
-          </a>
-
-          <a href="/jaipur/c-scheme" className="px-4 py-2 bg-gray-100 rounded-full">
-            C-Scheme Events
-          </a>
-
-          <a href="/jaipur/malviya-nagar" className="px-4 py-2 bg-gray-100 rounded-full">
-            Malviya Nagar Events
-          </a>
-
+          {localityLinks.slice(0, 3).map((link) => (
+            <a key={link.href} href={link.href} className="px-4 py-2 bg-gray-100 rounded-full">
+              {link.label} Events
+            </a>
+          ))}
         </div>
       </section>
-
     </main>
   );
 }
