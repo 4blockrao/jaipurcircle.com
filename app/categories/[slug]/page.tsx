@@ -1,73 +1,80 @@
-import { notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import Script from 'next/script';
+import { notFound } from 'next/navigation';
+import EventCard from '@/components/EventCard';
 
-export default async function CategoryPage({ params }: any) {
+export default async function CategoryPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const supabase = createServerSupabaseClient();
   const { slug } = await params;
 
-  if (!slug) return notFound();
+  const { data: category } = await supabase
+    .from('categories')
+    .select('*')
+    .eq('slug', slug)
+    .maybeSingle();
 
-  const supabase = createServerSupabaseClient();
+  if (!category) return notFound();
 
-  const { data, error } = await supabase.rpc('get_category_page', {
-    p_slug: slug,
-  });
+  const { data: eventLinks } = await supabase
+    .from('event_categories')
+    .select('event_id')
+    .eq('category_id', category.id);
 
-  if (error || !data || !data.category) {
-    console.error('❌ RPC ERROR:', error);
-    return notFound();
+  const eventIds = (eventLinks || []).map((x: any) => x.event_id);
+
+  let events: any[] = [];
+
+  if (eventIds.length > 0) {
+    const { data } = await supabase
+      .from('events')
+      .select('*')
+      .in('id', eventIds)
+      .order('start_time', { ascending: true });
+
+    events = data || [];
   }
 
-  const { category, events, top_localities } = data;
+  const { data: localities } = await supabase
+    .from('localities')
+    .select('*')
+    .limit(8);
 
   return (
-    <>
-      {/* ✅ CATEGORY ITEM LIST SCHEMA */}
-      <Script
-        id="category-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "ItemList",
-            itemListElement: (events || []).map((e: any, i: number) => ({
-              "@type": "ListItem",
-              position: i + 1,
-              url: `https://www.jaipurcircle.com/events/${e.slug}`,
-              name: e.title,
-            })),
-          }),
-        }}
-      />
+    <main className="max-w-6xl mx-auto px-4 md:px-6 py-10">
+      <h1 className="text-3xl font-bold mb-6">
+        {category.name} in Jaipur
+      </h1>
 
-      <main style={{ maxWidth: 900, margin: '40px auto', padding: 20 }}>
-        <h1>{category.name}</h1>
-        <p>{category.meta_description}</p>
-
-        {/* EVENTS */}
-        <div style={{ marginTop: 40 }}>
-          <h2>Upcoming {category.name} Events in Jaipur</h2>
-          <ul>
-            {events?.map((e: any) => (
-              <li key={e.id}>
-                <a href={`/events/${e.slug}`}>{e.title}</a>
-              </li>
-            ))}
-          </ul>
+      {/* EVENTS */}
+      <section className="mb-16">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {events.map((e) => (
+            <EventCard key={e.id} event={e} />
+          ))}
         </div>
+      </section>
 
-        {/* LOCALITIES */}
-        <div style={{ marginTop: 40 }}>
-          <h2>Popular Areas for {category.name}</h2>
-          <ul>
-            {top_localities?.map((l: any) => (
-              <li key={l.id}>
-                <a href={`/jaipur/${l.slug}`}>{l.name}</a>
-              </li>
-            ))}
-          </ul>
+      {/* 🔥 SEO LINK BLOCK */}
+      <section>
+        <h2 className="text-lg font-semibold mb-4">
+          Explore {category.name} by locality
+        </h2>
+
+        <div className="flex flex-wrap gap-3">
+          {localities?.map((loc) => (
+            <a
+              key={loc.id}
+              href={`/events-in/${category.slug}/${loc.slug}`}
+              className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 text-sm"
+            >
+              {category.name} in {loc.name}
+            </a>
+          ))}
         </div>
-      </main>
-    </>
+      </section>
+    </main>
   );
 }

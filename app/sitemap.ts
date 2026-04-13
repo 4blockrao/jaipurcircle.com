@@ -1,54 +1,53 @@
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { BASE_URL } from '@/lib/config';
 
 export default async function sitemap() {
   const supabase = createServerSupabaseClient();
 
-  const baseUrl = 'https://www.jaipurcircle.com';
+  const { data: events } = await supabase.from('events').select('slug');
+  const { data: categories } = await supabase.from('categories').select('slug');
+  const { data: localities } = await supabase.from('localities').select('slug');
 
-  // Fetch all slugs
-  const [
-    { data: events },
-    { data: localities },
-    { data: categories },
-    { data: venues },
-  ] = await Promise.all([
-    supabase.from('events').select('slug, updated_at').eq('is_indexable', true),
-    supabase.from('localities').select('slug, updated_at').eq('is_indexable', true),
-    supabase.from('categories').select('slug, updated_at').eq('is_indexable', true),
-    supabase.from('venues').select('slug, updated_at').eq('status', 'published'),
-  ]);
+  const staticPages = [
+    '',
+    '/categories',
+    '/localities',
+  ].map((path) => ({
+    url: BASE_URL + path,
+    lastModified: new Date(),
+  }));
 
-  const urls = [
-    // Homepage
-    {
-      url: baseUrl,
-      lastModified: new Date(),
-    },
+  const eventPages = (events || []).map((e) => ({
+    url: `${BASE_URL}/events/${e.slug}`,
+    lastModified: new Date(),
+  }));
 
-    // Events
-    ...(events || []).map((e) => ({
-      url: `${baseUrl}/events/${e.slug}`,
-      lastModified: e.updated_at || new Date(),
-    })),
+  const categoryPages = (categories || []).map((c) => ({
+    url: `${BASE_URL}/categories/${c.slug}`,
+    lastModified: new Date(),
+  }));
 
-    // Localities
-    ...(localities || []).map((l) => ({
-      url: `${baseUrl}/jaipur/${l.slug}`,
-      lastModified: l.updated_at || new Date(),
-    })),
+  const localityPages = (localities || []).map((l) => ({
+    url: `${BASE_URL}/jaipur/${l.slug}`,
+    lastModified: new Date(),
+  }));
 
-    // Categories
-    ...(categories || []).map((c) => ({
-      url: `${baseUrl}/categories/${c.slug}`,
-      lastModified: c.updated_at || new Date(),
-    })),
+  const hybridPages: any[] = [];
 
-    // Venues
-    ...(venues || []).map((v) => ({
-      url: `${baseUrl}/venues/${v.slug}`,
-      lastModified: v.updated_at || new Date(),
-    })),
+  (categories || []).forEach((c) => {
+    (localities || []).forEach((l) => {
+      hybridPages.push({
+        url: `${BASE_URL}/events-in/${c.slug}/${l.slug}`,
+        lastModified: new Date(),
+      });
+    });
+  });
+
+  return [
+    ...staticPages,
+    ...eventPages,
+    ...categoryPages,
+    ...localityPages,
+    ...hybridPages,
   ];
-
-  return urls;
 }
