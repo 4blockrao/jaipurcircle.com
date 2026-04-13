@@ -5,6 +5,7 @@ import {
   buildHybridLinksForCategory,
   buildLocalityLinks,
 } from '@/lib/internal-linking';
+import { getCategorySEO } from '@/lib/seo-content';
 
 export async function generateMetadata({
   params,
@@ -90,6 +91,14 @@ export default async function CategoryPage({
     return date < now;
   });
 
+  /* =========================
+     SEO CONTENT
+     ========================= */
+  const seo = getCategorySEO(category);
+
+  /* =========================
+     SCHEMA
+     ========================= */
   const collectionSchema = {
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',
@@ -130,6 +139,27 @@ export default async function CategoryPage({
         <p className="mt-3 text-gray-600 max-w-3xl leading-relaxed">
           Discover the best {category.name.toLowerCase()} events happening across Jaipur.
           Explore upcoming shows, trending experiences, and popular venues.
+        </p>
+      </section>
+
+      {/* 🔥 SEO CONTENT BLOCK */}
+      <section className="mb-10">
+        <h2 className="text-xl font-semibold mb-4">
+          About {category.name} in Jaipur
+        </h2>
+
+        <p className="text-gray-600 mb-4 leading-relaxed">
+          {seo.intro}
+        </p>
+
+        <ul className="list-disc pl-5 text-gray-600 space-y-2">
+          {seo.highlights.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ul>
+
+        <p className="text-gray-600 mt-4 leading-relaxed">
+          {seo.outro}
         </p>
       </section>
 
@@ -199,7 +229,11 @@ export default async function CategoryPage({
 
         <div className="flex flex-wrap gap-3 text-sm">
           {localityLinks.slice(0, 3).map((link) => (
-            <a key={link.href} href={link.href} className="px-4 py-2 bg-gray-100 rounded-full">
+            <a
+              key={link.href}
+              href={link.href}
+              className="px-4 py-2 bg-gray-100 rounded-full"
+            >
               {link.label} Events
             </a>
           ))}
