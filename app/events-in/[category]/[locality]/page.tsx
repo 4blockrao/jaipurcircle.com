@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { notFound } from 'next/navigation';
+import { resolveCategorySlug, resolveLocalitySlug } from '@/lib/resolve-slugs';
+import { notFound, redirect } from 'next/navigation';
 import EventCard from '@/components/EventCard';
 import { BASE_URL } from '@/lib/config';
 
@@ -11,27 +12,30 @@ export async function generateMetadata({
   const supabase = createServerSupabaseClient();
   const { category, locality } = await params;
 
-  const { data: cat } = await supabase
-    .from('categories')
-    .select('id, name, slug, meta_title, meta_description')
-    .eq('slug', category)
-    .maybeSingle();
+  if (category === 'in') {
+    const localityResolved = await resolveLocalitySlug(supabase, locality);
+    if (localityResolved.locality) {
+      return {
+        title: `Things to do in ${localityResolved.locality.name}, Jaipur`,
+        description:
+          localityResolved.locality.meta_description ||
+          `Explore events, venues and things to do in ${localityResolved.locality.name}, Jaipur.`,
+        alternates: {
+          canonical: `${BASE_URL}/jaipur/${localityResolved.locality.slug}`,
+        },
+      };
+    }
+    return {};
+  }
 
-  const { data: loc } = await supabase
-    .from('localities')
-    .select('id, name, slug, meta_title, meta_description, seo_blurb')
-    .eq('slug', locality)
-    .maybeSingle();
+  const { category: cat } = await resolveCategorySlug(supabase, category);
+  const { locality: loc } = await resolveLocalitySlug(supabase, locality);
 
   if (!cat || !loc) return {};
 
   return {
-    title:
-      cat.meta_title && loc.name
-        ? `${cat.name} in ${loc.name}, Jaipur`
-        : `${cat.name} in ${loc.name}, Jaipur`,
-    description:
-      `Explore ${cat.name.toLowerCase()} in ${loc.name}, Jaipur. Find upcoming events, venues, and local experiences.`,
+    title: `${cat.name} in ${loc.name}, Jaipur`,
+    description: `Explore ${cat.name.toLowerCase()} in ${loc.name}, Jaipur. Find upcoming events, venues, and local experiences.`,
     alternates: {
       canonical: `${BASE_URL}/events-in/${cat.slug}/${loc.slug}`,
     },
@@ -46,23 +50,32 @@ export default async function HybridPage({
   const supabase = createServerSupabaseClient();
   const { category, locality } = await params;
 
-  // 1) Validate category + locality independently
-  const { data: cat } = await supabase
-    .from('categories')
-    .select('id, name, slug, meta_description')
-    .eq('slug', category)
-    .maybeSingle();
+  // Safety fallback for bad legacy path like /events-in/in/raja-park-market
+  if (category === 'in') {
+    const localityResolved = await resolveLocalitySlug(supabase, locality);
 
-  const { data: loc } = await supabase
-    .from('localities')
-    .select('id, name, slug, meta_description, seo_blurb')
-    .eq('slug', locality)
-    .maybeSingle();
+    if (!localityResolved.locality || !localityResolved.canonicalSlug) {
+      return notFound();
+    }
 
-  // Only invalid entities should 404
+    redirect(`/jaipur/${localityResolved.canonicalSlug}`);
+  }
+
+  const categoryResolved = await resolveCategorySlug(supabase, category);
+  const localityResolved = await resolveLocalitySlug(supabase, locality);
+
+  const cat = categoryResolved.category;
+  const loc = localityResolved.locality;
+
   if (!cat || !loc) return notFound();
 
-  // 2) Find matching event ids for the category
+  if (
+    (categoryResolved.wasAlias && categoryResolved.canonicalSlug !== category) ||
+    (localityResolved.wasAlias && localityResolved.canonicalSlug !== locality)
+  ) {
+    redirect(`/events-in/${categoryResolved.canonicalSlug}/${localityResolved.canonicalSlug}`);
+  }
+
   const { data: eventLinks } = await supabase
     .from('event_categories')
     .select('event_id')
@@ -70,7 +83,6 @@ export default async function HybridPage({
 
   const eventIds = (eventLinks || []).map((x: any) => x.event_id);
 
-  // 3) Fetch matching events in the locality
   let events: any[] = [];
 
   if (eventIds.length > 0) {
@@ -160,3 +172,33 @@ export default async function HybridPage({
     </main>
   );
 }
+
+{/* 🔗 Navigation */}
+<div className="text-sm text-gray-500 mb-4 flex gap-3 flex-wrap">
+  <a href={`/categories/${category.slug}`} className="underline">
+    All {category.name}
+  </a>
+
+  <a href={`/jaipur/${locality.slug}`} className="underline">
+    All in {locality.name}
+  </a>
+</div>
+
+
+{/* 🧠 Hybrid SEO */}
+<section className="mt-10 text-sm text-gray-600 leading-relaxed">
+  <h2 className="text-lg font-semibold mb-2">
+    {category.name} in {locality.name}
+  </h2>
+
+  <p>
+    Explore the best {category.name.toLowerCase()} events happening in {locality.name}, Jaipur.
+    Find curated listings, upcoming events, and trending experiences all in one place.
+  </p>
+
+  <p className="mt-2">
+    Stay updated with what’s happening in {locality.name} and never miss out on
+    exciting {category.name.toLowerCase()} events near you.
+  </p>
+</section>
+

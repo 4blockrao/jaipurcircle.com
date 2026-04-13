@@ -258,3 +258,36 @@ export default async function HomePage({
     </main>
   );
 }
+
+{/* 🔥 Popular Categories */}
+<section className="px-4 py-6">
+  <h2 className="text-xl font-bold mb-3">Explore Categories</h2>
+  <div className="flex gap-3 overflow-x-auto">
+    {['comedy-shows','music-events','workshops','nightlife','food-festivals','art-culture'].map((c) => (
+      <a
+        key={c}
+        href={`/categories/${c}`}
+        className="px-4 py-2 bg-gray-100 rounded-full whitespace-nowrap text-sm"
+      >
+        {c.replace('-', ' ')}
+      </a>
+    ))}
+  </div>
+</section>
+
+{/* 📍 Top Localities */}
+<section className="px-4 py-6">
+  <h2 className="text-xl font-bold mb-3">Popular Areas in Jaipur</h2>
+  <div className="flex gap-3 overflow-x-auto">
+    {['vaishali-nagar','malviya-nagar','c-scheme','mansarovar','jagatpura'].map((l) => (
+      <a
+        key={l}
+        href={`/jaipur/${l}`}
+        className="px-4 py-2 bg-gray-100 rounded-full whitespace-nowrap text-sm"
+      >
+        {l.replace('-', ' ')}
+      </a>
+    ))}
+  </div>
+</section>
+
