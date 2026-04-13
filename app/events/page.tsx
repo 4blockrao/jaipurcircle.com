@@ -15,6 +15,23 @@ export const metadata = {
     'Browse upcoming events in Jaipur including comedy shows, music events, workshops, nightlife and local experiences.',
 };
 
+function isPublishedOrLegacyLive(event: any) {
+  return !event?.editorial_status || event.editorial_status === 'published';
+}
+
+function resolveEventStatus(event: any) {
+  if (event?.status) return event.status;
+
+  const startValue = event?.start_time || event?.start_date;
+  if (!startValue) return 'upcoming';
+
+  const now = new Date();
+  const start = new Date(startValue);
+
+  if (Number.isNaN(start.getTime())) return 'upcoming';
+  return start.getTime() < now.getTime() ? 'past' : 'upcoming';
+}
+
 export default async function EventsHubPage({
   searchParams,
 }: {
@@ -74,7 +91,11 @@ export default async function EventsHubPage({
     .order('start_time', { ascending: true });
 
   if (resolvedLocality) {
-    eventsQuery = eventsQuery.eq('locality_id', resolvedLocality.id);
+    if (resolvedLocality.id) {
+      eventsQuery = eventsQuery.eq('locality_id', resolvedLocality.id);
+    } else if (resolvedLocality.slug) {
+      eventsQuery = eventsQuery.eq('locality', resolvedLocality.slug);
+    }
   }
 
   if (eventIdsByCategory) {
@@ -175,11 +196,26 @@ export default async function EventsHubPage({
   if (searchQuery) {
     const safeSearch = searchQuery.replace(/,/g, ' ').trim();
     eventsQuery = eventsQuery.or(
-      `title.ilike.%${safeSearch}%,meta_description.ilike.%${safeSearch}%,description.ilike.%${safeSearch}%`
+      `title.ilike.%${safeSearch}%,meta_description.ilike.%${safeSearch}%,description.ilike.%${safeSearch}%,short_description.ilike.%${safeSearch}%,venue_name.ilike.%${safeSearch}%,locality.ilike.%${safeSearch}%`
     );
   }
 
-  const { data: events } = await eventsQuery.limit(24);
+  const { data: rawEvents } = await eventsQuery.limit(24);
+
+  const events = (rawEvents || [])
+    .filter(isPublishedOrLegacyLive)
+    .sort((a: any, b: any) => {
+      const aStatus = resolveEventStatus(a);
+      const bStatus = resolveEventStatus(b);
+
+      if (aStatus === 'upcoming' && bStatus !== 'upcoming') return -1;
+      if (aStatus !== 'upcoming' && bStatus === 'upcoming') return 1;
+
+      const aDate = new Date(a.start_time || a.start_date || 0).getTime();
+      const bDate = new Date(b.start_time || b.start_date || 0).getTime();
+
+      return aDate - bDate;
+    });
 
   const pageTitle =
     resolvedCategory && resolvedLocality
@@ -242,6 +278,15 @@ export default async function EventsHubPage({
             </button>
           </div>
         </form>
+      </section>
+
+      <section className="mb-10">
+        <p className="text-gray-600 leading-relaxed max-w-3xl">
+          Jaipur offers a vibrant mix of events including comedy shows, live music,
+          workshops, nightlife experiences and cultural festivals. Discover what’s happening
+          today, this week, and upcoming across popular localities like Vaishali Nagar,
+          C-Scheme, Malviya Nagar, Mansarovar and more.
+        </p>
       </section>
 
       {(resolvedCategory || resolvedLocality) && (
@@ -333,6 +378,58 @@ export default async function EventsHubPage({
             ))}
           </div>
         )}
+      </section>
+
+      <section className="mt-14">
+        <h2 className="text-lg font-semibold mb-4">
+          Explore More Events in Jaipur
+        </h2>
+
+        <div className="flex flex-wrap gap-3 text-sm">
+          <a
+            href="/categories/comedy-shows"
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            Comedy Shows
+          </a>
+          <a
+            href="/categories/music-events"
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            Music Events
+          </a>
+          <a
+            href="/categories/workshops"
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            Workshops
+          </a>
+          <a
+            href="/categories/nightlife"
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            Nightlife
+          </a>
+
+          <a
+            href="/jaipur/vaishali-nagar"
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            Vaishali Nagar Events
+          </a>
+          <a
+            href="/jaipur/c-scheme"
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            C-Scheme Events
+          </a>
+          <a
+            href="/jaipur/malviya-nagar"
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            Malviya Nagar Events
+          </a>
+        </div>
       </section>
     </main>
   );
