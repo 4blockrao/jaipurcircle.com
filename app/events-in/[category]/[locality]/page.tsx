@@ -1,8 +1,24 @@
+import { notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { resolveCategorySlug, resolveLocalitySlug } from '@/lib/resolve-slugs';
-import { notFound, redirect } from 'next/navigation';
 import EventCard from '@/components/EventCard';
-import { BASE_URL } from '@/lib/config';
+import { resolveCategorySlug, resolveLocalitySlug } from '@/lib/resolve-slugs';
+
+function isPublishedOrLegacyLive(event: any) {
+  return !event?.editorial_status || event.editorial_status === 'published';
+}
+
+function resolveEventStatus(event: any) {
+  if (event?.status) return event.status;
+
+  const startValue = event?.start_time || event?.start_date;
+  if (!startValue) return 'upcoming';
+
+  const now = new Date();
+  const start = new Date(startValue);
+
+  if (Number.isNaN(start.getTime())) return 'upcoming';
+  return start.getTime() < now.getTime() ? 'past' : 'upcoming';
+}
 
 export async function generateMetadata({
   params,
@@ -12,37 +28,26 @@ export async function generateMetadata({
   const supabase = createServerSupabaseClient();
   const { category, locality } = await params;
 
-  if (category === 'in') {
-    const localityResolved = await resolveLocalitySlug(supabase, locality);
-    if (localityResolved.locality) {
-      return {
-        title: `Things to do in ${localityResolved.locality.name}, Jaipur`,
-        description:
-          localityResolved.locality.meta_description ||
-          `Explore events, venues and things to do in ${localityResolved.locality.name}, Jaipur.`,
-        alternates: {
-          canonical: `${BASE_URL}/jaipur/${localityResolved.locality.slug}`,
-        },
-      };
-    }
-    return {};
+  const categoryResult = await resolveCategorySlug(supabase, category);
+  const localityResult = await resolveLocalitySlug(supabase, locality);
+
+  const resolvedCategory = categoryResult.category;
+  const resolvedLocality = localityResult.locality;
+
+  if (!resolvedCategory || !resolvedLocality) {
+    return {
+      title: 'Events in Jaipur',
+      description: 'Browse events in Jaipur by category and locality.',
+    };
   }
 
-  const { category: cat } = await resolveCategorySlug(supabase, category);
-  const { locality: loc } = await resolveLocalitySlug(supabase, locality);
-
-  if (!cat || !loc) return {};
-
   return {
-    title: `${cat.name} in ${loc.name}, Jaipur`,
-    description: `Explore ${cat.name.toLowerCase()} in ${loc.name}, Jaipur. Find upcoming events, venues, and local experiences.`,
-    alternates: {
-      canonical: `${BASE_URL}/events-in/${cat.slug}/${loc.slug}`,
-    },
+    title: `${resolvedCategory.name} in ${resolvedLocality.name}, Jaipur`,
+    description: `Browse ${resolvedCategory.name.toLowerCase()} in ${resolvedLocality.name}, Jaipur. Discover upcoming and past events, shows and experiences.`,
   };
 }
 
-export default async function HybridPage({
+export default async function CategoryLocalityEventsPage({
   params,
 }: {
   params: Promise<{ category: string; locality: string }>;
@@ -50,155 +55,170 @@ export default async function HybridPage({
   const supabase = createServerSupabaseClient();
   const { category, locality } = await params;
 
-  // Safety fallback for bad legacy path like /events-in/in/raja-park-market
-  if (category === 'in') {
-    const localityResolved = await resolveLocalitySlug(supabase, locality);
+  const categoryResult = await resolveCategorySlug(supabase, category);
+  const localityResult = await resolveLocalitySlug(supabase, locality);
 
-    if (!localityResolved.locality || !localityResolved.canonicalSlug) {
-      return notFound();
-    }
+  const resolvedCategory = categoryResult.category;
+  const resolvedLocality = localityResult.locality;
 
-    redirect(`/jaipur/${localityResolved.canonicalSlug}`);
+  if (!resolvedCategory || !resolvedLocality) {
+    return notFound();
   }
 
-  const categoryResolved = await resolveCategorySlug(supabase, category);
-  const localityResolved = await resolveLocalitySlug(supabase, locality);
-
-  const cat = categoryResolved.category;
-  const loc = localityResolved.locality;
-
-  if (!cat || !loc) return notFound();
-
-  if (
-    (categoryResolved.wasAlias && categoryResolved.canonicalSlug !== category) ||
-    (localityResolved.wasAlias && localityResolved.canonicalSlug !== locality)
-  ) {
-    redirect(`/events-in/${categoryResolved.canonicalSlug}/${localityResolved.canonicalSlug}`);
-  }
-
-  const { data: eventLinks } = await supabase
+  const { data: categoryLinks } = await supabase
     .from('event_categories')
     .select('event_id')
-    .eq('category_id', cat.id);
+    .eq('category_id', resolvedCategory.id);
 
-  const eventIds = (eventLinks || []).map((x: any) => x.event_id);
+  const categoryEventIds = (categoryLinks || []).map((row: any) => row.event_id);
 
-  let events: any[] = [];
+  let rawEvents: any[] = [];
 
-  if (eventIds.length > 0) {
-    const { data: matchedEvents } = await supabase
+  if (categoryEventIds.length > 0) {
+    const { data } = await supabase
       .from('events')
       .select('*')
-      .in('id', eventIds)
-      .eq('locality_id', loc.id)
+      .in('id', categoryEventIds)
+      .eq('locality_id', resolvedLocality.id)
       .order('start_time', { ascending: true });
 
-    events = matchedEvents || [];
+    rawEvents = data || [];
   }
+
+  const events = rawEvents
+    .filter(isPublishedOrLegacyLive)
+    .sort((a: any, b: any) => {
+      const aStatus = resolveEventStatus(a);
+      const bStatus = resolveEventStatus(b);
+
+      if (aStatus === 'upcoming' && bStatus !== 'upcoming') return -1;
+      if (aStatus !== 'upcoming' && bStatus === 'upcoming') return 1;
+
+      const aDate = new Date(a.start_time || a.start_date || 0).getTime();
+      const bDate = new Date(b.start_time || b.start_date || 0).getTime();
+
+      return aDate - bDate;
+    });
+
+  const upcomingEvents = events.filter((event: any) => resolveEventStatus(event) === 'upcoming');
+  const pastEvents = events.filter((event: any) => resolveEventStatus(event) === 'past');
 
   return (
     <main className="max-w-6xl mx-auto px-4 md:px-6 py-10">
       <section className="mb-10">
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
-          {cat.name} in {loc.name}, Jaipur
+          {resolvedCategory.name} in {resolvedLocality.name}, Jaipur
         </h1>
 
         <p className="mt-3 text-gray-600 max-w-3xl leading-relaxed">
-          Discover the best {cat.name.toLowerCase()} happening in {loc.name}. Explore upcoming events,
-          venues, and local experiences.
+          Discover {resolvedCategory.name.toLowerCase()} in {resolvedLocality.name}, Jaipur.
+          Browse upcoming shows, experiences and local events, and explore related event hubs across Jaipur.
         </p>
       </section>
 
-      <section className="mb-14">
-        <h2 className="text-xl font-semibold mb-6">
-          Upcoming {cat.name} in {loc.name}
-        </h2>
+      <section className="mb-8">
+        <div className="flex flex-wrap gap-3 text-sm">
+          <a
+            href="/events"
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            All Events
+          </a>
 
-        {events.length === 0 ? (
-          <div className="rounded-2xl border border-gray-200 bg-white p-6">
-            <p className="text-gray-700 font-medium">
-              No {cat.name.toLowerCase()} are listed in {loc.name} right now.
-            </p>
-            <p className="text-gray-500 mt-2">
-              Check back soon, or explore all {cat.name.toLowerCase()} in Jaipur and more things to do in {loc.name}.
-            </p>
+          <a
+            href={`/categories/${resolvedCategory.slug}`}
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            All {resolvedCategory.name}
+          </a>
 
-            <div className="mt-4 flex flex-wrap gap-3">
-              <a
-                href={`/categories/${cat.slug}`}
-                className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 text-sm"
-              >
-                All {cat.name} in Jaipur
-              </a>
-
-              <a
-                href={`/jaipur/${loc.slug}`}
-                className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 text-sm"
-              >
-                Things to do in {loc.name}
-              </a>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {events.map((e: any) => (
-              <EventCard key={e.id} event={e} />
-            ))}
-          </div>
-        )}
+          <a
+            href={`/jaipur/${resolvedLocality.slug}`}
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            Events in {resolvedLocality.name}
+          </a>
+        </div>
       </section>
 
-      <section className="border-t pt-10">
-        <h2 className="text-xl font-semibold mb-4">
-          Explore more
+      <section className="mb-10">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">
+            Explore {resolvedCategory.name} in {resolvedLocality.name}
+          </h2>
+          <p className="text-gray-600 leading-relaxed">
+            This page brings together event discovery for people specifically looking for{' '}
+            {resolvedCategory.name.toLowerCase()} in {resolvedLocality.name}. It is designed as a
+            persistent discovery page, so even when some events end, the hub remains useful for
+            finding related upcoming options.
+          </p>
+        </div>
+      </section>
+
+      {upcomingEvents.length > 0 && (
+        <section className="mb-12">
+          <h2 className="text-xl font-semibold mb-6">Upcoming {resolvedCategory.name}</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {upcomingEvents.map((event: any) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {pastEvents.length > 0 && (
+        <section className="mb-12">
+          <h2 className="text-xl font-semibold mb-6">Past {resolvedCategory.name}</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {pastEvents.map((event: any) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {events.length === 0 && (
+        <section className="mb-12">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6">
+            <p className="text-gray-700 font-medium">
+              No events found right now for this combination.
+            </p>
+            <p className="text-gray-500 mt-2">
+              Try browsing all {resolvedCategory.name.toLowerCase()} across Jaipur or explore more
+              events in {resolvedLocality.name}.
+            </p>
+          </div>
+        </section>
+      )}
+
+      <section className="mt-14">
+        <h2 className="text-lg font-semibold mb-4">
+          Continue Exploring Jaipur
         </h2>
 
         <div className="flex flex-wrap gap-3 text-sm">
           <a
-            href={`/categories/${cat.slug}`}
-            className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200"
+            href={`/categories/${resolvedCategory.slug}`}
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
           >
-            All {cat.name} in Jaipur
+            More {resolvedCategory.name} in Jaipur
           </a>
 
           <a
-            href={`/jaipur/${loc.slug}`}
-            className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200"
+            href={`/jaipur/${resolvedLocality.slug}`}
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
           >
-            Things to do in {loc.name}
+            More events in {resolvedLocality.name}
+          </a>
+
+          <a
+            href="/events"
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            Browse all Jaipur events
           </a>
         </div>
       </section>
     </main>
   );
 }
-
-{/* 🔗 Navigation */}
-<div className="text-sm text-gray-500 mb-4 flex gap-3 flex-wrap">
-  <a href={`/categories/${category.slug}`} className="underline">
-    All {category.name}
-  </a>
-
-  <a href={`/jaipur/${locality.slug}`} className="underline">
-    All in {locality.name}
-  </a>
-</div>
-
-
-{/* 🧠 Hybrid SEO */}
-<section className="mt-10 text-sm text-gray-600 leading-relaxed">
-  <h2 className="text-lg font-semibold mb-2">
-    {category.name} in {locality.name}
-  </h2>
-
-  <p>
-    Explore the best {category.name.toLowerCase()} events happening in {locality.name}, Jaipur.
-    Find curated listings, upcoming events, and trending experiences all in one place.
-  </p>
-
-  <p className="mt-2">
-    Stay updated with what’s happening in {locality.name} and never miss out on
-    exciting {category.name.toLowerCase()} events near you.
-  </p>
-</section>
-
