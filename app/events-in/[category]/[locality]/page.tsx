@@ -7,6 +7,7 @@ import {
   buildHybridLinksForCategory,
   buildHybridLinksForLocality,
 } from '@/lib/internal-linking';
+import { getHybridSEO } from '@/lib/seo-content';
 
 function isPublishedOrLegacyLive(event: any) {
   return !event?.editorial_status || event.editorial_status === 'published';
@@ -147,6 +148,8 @@ export default async function HybridEventsPage({
     siblingLocalities || []
   ).slice(0, 6);
 
+  const seo = getHybridSEO(resolvedCategory, resolvedLocality);
+
   const collectionSchema = {
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',
@@ -221,6 +224,27 @@ export default async function HybridEventsPage({
           Discover {resolvedCategory.name.toLowerCase()} in {resolvedLocality.name}, Jaipur.
           This page brings together the most relevant upcoming events, past event history,
           and discovery links to help users explore this niche locally.
+        </p>
+      </section>
+
+      {/* 🔥 SEO CONTENT BLOCK */}
+      <section className="mb-10">
+        <h2 className="text-xl font-semibold mb-4">
+          About {resolvedCategory.name} in {resolvedLocality.name}
+        </h2>
+
+        <p className="text-gray-600 mb-4 leading-relaxed">
+          {seo.intro}
+        </p>
+
+        <ul className="list-disc pl-5 text-gray-600 space-y-2">
+          {seo.highlights.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ul>
+
+        <p className="text-gray-600 mt-4 leading-relaxed">
+          {seo.outro}
         </p>
       </section>
 
