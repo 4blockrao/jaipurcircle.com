@@ -25,7 +25,7 @@ export async function generateMetadata({
 
   return {
     title: `Things to Do in ${locality.name}, Jaipur`,
-    description: `Discover events, activities, nightlife, and things to do in ${locality.name}, Jaipur.`,
+    description: `Discover events, nightlife, workshops, and experiences in ${locality.name}, Jaipur.`,
   };
 }
 
@@ -51,6 +51,11 @@ export default async function LocalityPage({
     .or(`locality.eq.${slug},locality_id.eq.${locality.id}`)
     .order('start_time', { ascending: true })
     .limit(30);
+
+  const { data: categories } = await supabase
+    .from('categories')
+    .select('*')
+    .limit(6);
 
   const now = new Date();
 
@@ -99,22 +104,40 @@ export default async function LocalityPage({
   return (
     <main className="max-w-6xl mx-auto px-4 md:px-6 py-10">
 
-      {/* ✅ SCHEMA */}
+      {/* SCHEMA */}
       <script type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(placeSchema) }} />
       <script type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }} />
 
+      {/* HERO */}
       <section className="mb-10">
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900">
           Things to Do in {locality.name}, Jaipur
         </h1>
 
         <p className="mt-3 text-gray-600 max-w-3xl leading-relaxed">
-          Explore events, nightlife, workshops, and experiences happening in {locality.name}.
+          Discover the best events, nightlife, workshops, and experiences in {locality.name}.
+          Explore what’s happening today and upcoming in this area.
         </p>
       </section>
 
+      {/* 🔗 INTERNAL NAV (CRITICAL) */}
+      <section className="mb-8">
+        <div className="flex flex-wrap gap-3 text-sm">
+
+          <a href="/events" className="px-4 py-2 bg-gray-100 rounded-full">
+            All Jaipur Events
+          </a>
+
+          <a href="/categories" className="px-4 py-2 bg-gray-100 rounded-full">
+            All Categories
+          </a>
+
+        </div>
+      </section>
+
+      {/* UPCOMING EVENTS */}
       {upcomingEvents.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-6">
@@ -129,8 +152,30 @@ export default async function LocalityPage({
         </section>
       )}
 
+      {/* 🔥 CATEGORY LOOP (VERY IMPORTANT) */}
+      {categories && categories.length > 0 && (
+        <section className="mb-12">
+          <h2 className="text-lg font-semibold mb-4">
+            Explore by Category in {locality.name}
+          </h2>
+
+          <div className="flex flex-wrap gap-3 text-sm">
+            {categories.map((cat: any) => (
+              <a
+                key={cat.id}
+                href={`/events-in/${cat.slug}/${locality.slug}`}
+                className="px-4 py-2 bg-gray-100 rounded-full hover:bg-gray-200 transition"
+              >
+                {cat.name} in {locality.name}
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* PAST EVENTS */}
       {pastEvents.length > 0 && (
-        <section>
+        <section className="mb-12">
           <h2 className="text-xl font-semibold mb-6">
             Past Events in {locality.name}
           </h2>
@@ -142,6 +187,29 @@ export default async function LocalityPage({
           </div>
         </section>
       )}
+
+      {/* 🔗 SEO BOOST LINKS */}
+      <section className="mt-14">
+        <h2 className="text-lg font-semibold mb-4">
+          Explore More in Jaipur
+        </h2>
+
+        <div className="flex flex-wrap gap-3 text-sm">
+
+          <a href="/categories/comedy-shows" className="px-4 py-2 bg-gray-100 rounded-full">
+            Comedy Shows Jaipur
+          </a>
+
+          <a href="/categories/music-events" className="px-4 py-2 bg-gray-100 rounded-full">
+            Music Events Jaipur
+          </a>
+
+          <a href="/categories/workshops" className="px-4 py-2 bg-gray-100 rounded-full">
+            Workshops Jaipur
+          </a>
+
+        </div>
+      </section>
 
     </main>
   );
