@@ -1,59 +1,330 @@
 import { notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import EventCard from '@/components/EventCard';
+import { buildCategoryDiscoveryLinks } from '@/lib/internal-linking';
 
-import {
-  buildCategoryDiscoveryLinks,
-} from '@/lib/internal-linking';
+function titleFromSlug(slug?: string) {
+  if (!slug) return 'Category';
+  return slug
+    .split('-')
+    .map((x) => x.charAt(0).toUpperCase() + x.slice(1))
+    .join(' ');
+}
 
-export default async function CategoryPage({ params }: any) {
+function isUpcomingEvent(event: any) {
+  const value = event?.start_time || event?.start_date;
+  if (!value) return true;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return true;
+
+  return date >= new Date();
+}
+
+function dedupeById(items: any[]) {
+  const seen = new Set<string>();
+  return (items || []).filter((item: any) => {
+    if (!item?.id) return false;
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function buildFaq(categoryName: string, upcomingCount: number, localityCount: number) {
+  return [
+    {
+      q: `What kind of events are listed under ${categoryName} in Jaipur?`,
+      a: `${categoryName} listings on JaipurCircle include upcoming and past events connected to Jaipur’s venue, locality, and discovery graph.`,
+    },
+    {
+      q: `Are there upcoming ${categoryName.toLowerCase()} in Jaipur?`,
+      a:
+        upcomingCount > 0
+          ? `Yes, there are ${upcomingCount} upcoming ${categoryName.toLowerCase()} listed right now.`
+          : `There are currently no upcoming ${categoryName.toLowerCase()} listed right now.`,
+    },
+    {
+      q: `Can I explore ${categoryName.toLowerCase()} by locality?`,
+      a:
+        localityCount > 0
+          ? `Yes, JaipurCircle helps you explore ${categoryName.toLowerCase()} across multiple Jaipur localities.`
+          : `Locality-level discovery for this category will expand as more events are added.`,
+    },
+    {
+      q: `Where can I discover more Jaipur events?`,
+      a: `You can browse all Jaipur events, locality pages, artist profiles, venue pages, and hybrid category-locality pages on JaipurCircle.`,
+    },
+  ];
+}
+
+export async function generateMetadata(props: any) {
   const supabase = createServerSupabaseClient();
-  const { slug } = await params;
+  const params = await props.params;
+  const slug = params?.slug;
 
-  const { data: events } = await supabase
+  if (!slug) return {};
+
+  const categoryName = titleFromSlug(slug);
+
+  return {
+    title: `${categoryName} in Jaipur | Events & Experiences`,
+    description: `Discover ${categoryName.toLowerCase()} in Jaipur. Explore upcoming events, local discovery, and related experiences across the city.`,
+  };
+}
+
+export default async function CategoryPage(props: any) {
+  const supabase = createServerSupabaseClient();
+  const params = await props.params;
+  const slug = params?.slug;
+
+  if (!slug) return notFound();
+
+  const categoryName = titleFromSlug(slug);
+
+  const { data: eventsRaw } = await supabase
     .from('events')
     .select('*')
-    .eq('category', slug)
     .eq('editorial_status', 'published')
-    .limit(30);
+    .eq('category', slug)
+    .order('start_time', { ascending: true });
 
-  if (!events || events.length === 0) return notFound();
+  const events = dedupeById(eventsRaw || []);
+
+  if (events.length === 0) return notFound();
+
+  const upcomingEvents = events.filter(isUpcomingEvent);
+  const pastEvents = events.filter((event: any) => !isUpcomingEvent(event));
+
+  const uniqueLocalities = [...new Set(events.map((e: any) => e?.locality).filter(Boolean))]
+    .slice(0, 10)
+    .map((name: string) => ({ slug: name, name }));
+
+  const uniqueVenues = [...new Set(events.map((e: any) => e?.venue_name).filter(Boolean))]
+    .slice(0, 8)
+    .map((name: string) => ({
+      slug: String(name).toLowerCase().replace(/\s+/g, '-'),
+      name,
+    }));
 
   const discoveryLinks = buildCategoryDiscoveryLinks({
-    category: { slug, name: slug },
-    localities: events.map((e: any) => ({
-      slug: e.locality,
-      name: e.locality,
-    })),
-    venues: events.map((e: any) => ({
-      slug: e.venue_name?.toLowerCase().replace(/\s+/g, '-'),
-      name: e.venue_name,
-    })),
+    category: { slug, name: categoryName },
+    localities: uniqueLocalities,
+    venues: uniqueVenues,
   });
 
+  const faqItems = buildFaq(categoryName, upcomingEvents.length, uniqueLocalities.length);
+
+  const faqSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqItems.map((item) => ({
+      '@type': 'Question',
+      name: item.q,
+      acceptedAnswer: { '@type': 'Answer', text: item.a },
+    })),
+  };
+
+  const collectionSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: `${categoryName} in Jaipur`,
+    description: `Discover ${categoryName.toLowerCase()} in Jaipur.`,
+    url: `https://www.jaipurcircle.com/categories/${slug}`,
+  };
+
   return (
-    <main className="max-w-7xl mx-auto px-4 py-10">
+    <main className="max-w-7xl mx-auto px-4 md:px-6 pb-28">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
 
-      <h1 className="text-3xl font-bold capitalize">
-        {slug.replace('-', ' ')} Events in Jaipur
-      </h1>
+      <nav className="mt-6 text-sm text-gray-500">
+        <a href="/" className="hover:text-gray-800 transition">Home</a> <span className="mx-2">›</span>
+        <a href="/events" className="hover:text-gray-800 transition">Events</a> <span className="mx-2">›</span>
+        <span className="text-gray-800">{categoryName}</span>
+      </nav>
 
-      {/* Discovery */}
-      <div className="mt-6 flex flex-wrap gap-2">
-        {discoveryLinks.map((l, i) => (
-          <a key={i} href={l.href} className="px-3 py-1 bg-gray-100 rounded-full text-sm">
-            {l.label}
+      <section className="relative h-[320px] md:h-[420px] rounded-3xl overflow-hidden mt-4 bg-gradient-to-br from-fuchsia-600 via-purple-600 to-indigo-700 text-white">
+        <div className="absolute inset-0 bg-black/15" />
+        <div className="absolute top-5 left-5 flex flex-wrap gap-2">
+          <span className="px-3 py-1.5 rounded-full bg-white/15 backdrop-blur text-white text-xs md:text-sm font-medium">
+            Category Page
+          </span>
+          <span className="px-3 py-1.5 rounded-full bg-emerald-500 text-white text-xs md:text-sm font-medium">
+            {upcomingEvents.length} Upcoming
+          </span>
+        </div>
+
+        <div className="absolute bottom-0 left-0 right-0 p-5 md:p-8">
+          <div className="max-w-4xl">
+            <h1 className="text-3xl md:text-5xl font-bold leading-tight tracking-tight">
+              {categoryName} in Jaipur
+            </h1>
+            <p className="mt-3 text-sm md:text-base text-white/85 max-w-3xl leading-relaxed">
+              Discover upcoming {categoryName.toLowerCase()} in Jaipur, explore related localities, venues, and persistent event pages across the city.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <a
+                href="#upcoming-events"
+                className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm md:text-base font-semibold text-gray-900 hover:bg-gray-100 transition"
+              >
+                Explore Events
+              </a>
+              <a
+                href="/events"
+                className="inline-flex items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-6 py-3 text-sm md:text-base font-medium text-white backdrop-blur hover:bg-white/15 transition"
+              >
+                Browse All Jaipur Events
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-6 flex flex-wrap gap-3 text-sm">
+        {discoveryLinks.map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
+          >
+            {link.label}
           </a>
         ))}
-      </div>
+      </section>
 
-      {/* Events */}
-      <div className="mt-8 grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {events.map((e: any) => (
-          <EventCard key={e.id} event={e} />
-        ))}
-      </div>
+      <section className="mt-8 grid grid-cols-1 lg:grid-cols-[1.55fr_0.9fr] gap-8">
+        <div className="space-y-8">
+          <section className="bg-white rounded-3xl border border-gray-200 p-6 md:p-8">
+            <h2 className="text-xl md:text-2xl font-semibold text-gray-900 mb-4">
+              About this category
+            </h2>
+            <p className="text-gray-600 leading-relaxed text-sm md:text-base">
+              {categoryName} events in Jaipur continue to attract audiences looking for curated experiences, entertainment, and local discovery. This page helps users browse active listings, explore by area, and navigate related venue and event surfaces.
+            </p>
 
+            <div className="mt-6 grid sm:grid-cols-3 gap-4">
+              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
+                <div className="text-xs uppercase tracking-wide text-gray-500">Upcoming Events</div>
+                <div className="mt-1 text-lg font-semibold text-gray-900">{upcomingEvents.length}</div>
+              </div>
+              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
+                <div className="text-xs uppercase tracking-wide text-gray-500">Past Events</div>
+                <div className="mt-1 text-lg font-semibold text-gray-900">{pastEvents.length}</div>
+              </div>
+              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
+                <div className="text-xs uppercase tracking-wide text-gray-500">Active Localities</div>
+                <div className="mt-1 text-lg font-semibold text-gray-900">{uniqueLocalities.length}</div>
+              </div>
+            </div>
+          </section>
+
+          {uniqueLocalities.length > 0 ? (
+            <section className="bg-white rounded-3xl border border-gray-200 p-6 md:p-8">
+              <h2 className="text-xl md:text-2xl font-semibold text-gray-900 mb-4">
+                Explore {categoryName} by locality
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {uniqueLocalities.map((locality: any) => (
+                  <a
+                    key={locality.slug}
+                    href={`/events-in/${slug}/${locality.slug}`}
+                    className="px-3 py-1.5 rounded-full bg-gray-100 text-sm text-gray-700 hover:bg-gray-200 transition"
+                  >
+                    {String(locality.name).replace(/-/g, ' ')}
+                  </a>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="bg-white rounded-3xl border border-gray-200 p-6 md:p-8">
+            <h2 className="text-xl md:text-2xl font-semibold text-gray-900 mb-4">
+              Category FAQs
+            </h2>
+            <div className="space-y-4">
+              {faqItems.map((item, index) => (
+                <div key={index} className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
+                  <h3 className="text-sm md:text-base font-semibold text-gray-900">{item.q}</h3>
+                  <p className="mt-2 text-sm text-gray-600 leading-relaxed">{item.a}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <aside className="lg:sticky lg:top-24 h-fit">
+          <div className="bg-white rounded-3xl border border-gray-200 p-5 md:p-6 shadow-sm">
+            <h2 className="text-lg md:text-xl font-semibold text-gray-900 mb-4">
+              Category overview
+            </h2>
+            <div className="space-y-4 text-sm">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Category</div>
+                <div className="mt-1 text-gray-800">{categoryName}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Upcoming Events</div>
+                <div className="mt-1 text-gray-800">{upcomingEvents.length}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Localities</div>
+                <div className="mt-1 text-gray-800">{uniqueLocalities.length}</div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3">
+              <a
+                href="#upcoming-events"
+                className="w-full text-center bg-blue-600 text-white py-3 rounded-2xl font-semibold hover:bg-blue-700 transition"
+              >
+                View Upcoming Events
+              </a>
+              <a
+                href="/events"
+                className="w-full text-center border border-gray-200 text-gray-800 py-3 rounded-2xl font-medium hover:bg-gray-50 transition"
+              >
+                Browse Jaipur Events
+              </a>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section id="upcoming-events" className="mt-14">
+        <h2 className="text-2xl font-semibold text-gray-900 mb-5">
+          Upcoming {categoryName} in Jaipur
+        </h2>
+
+        {upcomingEvents.length === 0 ? (
+          <div className="rounded-3xl border border-gray-200 bg-white p-6 md:p-8">
+            <h3 className="text-lg font-semibold text-gray-900">No upcoming events listed yet</h3>
+            <p className="mt-2 text-gray-600 leading-relaxed">
+              This category page remains live as part of JaipurCircle’s discovery graph.
+            </p>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {upcomingEvents.map((event: any) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {pastEvents.length > 0 ? (
+        <section className="mt-14">
+          <h2 className="text-2xl font-semibold text-gray-900 mb-5">
+            Past event archive
+          </h2>
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {pastEvents.slice(0, 9).map((event: any) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }
