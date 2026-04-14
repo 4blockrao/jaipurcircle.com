@@ -1,126 +1,467 @@
-export type LinkItem = {
-  label: string;
+type BasicEntity = {
+  id?: string;
+  name?: string;
+  slug?: string;
+};
+
+type EventLike = {
+  id?: string;
+  slug?: string;
+  title?: string;
+  category?: string;
+  locality?: string;
+  venue_name?: string;
+};
+
+type LinkItem = {
   href: string;
+  label: string;
 };
 
-export type CategoryLike = {
-  id?: string;
-  name?: string;
-  slug?: string;
-};
-
-export type LocalityLike = {
-  id?: string;
-  name?: string;
-  slug?: string;
-};
-
-export function safeSlug(value?: string | null) {
-  if (!value) return '';
-  return String(value).trim().toLowerCase();
+function safeName(value?: string) {
+  return value || '';
 }
 
-export function dedupeLinks(items: LinkItem[]) {
+function titleCaseFromSlug(value?: string) {
+  if (!value) return '';
+  return value
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function normalizeCategoryLabel(category: any) {
+  return safeName(category?.name) || titleCaseFromSlug(category?.slug);
+}
+
+function normalizeLocalityLabel(locality: any) {
+  return safeName(locality?.name) || titleCaseFromSlug(locality?.slug);
+}
+
+function normalizeVenueLabel(venue: any) {
+  return safeName(venue?.name) || titleCaseFromSlug(venue?.slug);
+}
+
+function dedupeLinks(links: LinkItem[]) {
   const seen = new Set<string>();
-  return items.filter((item) => {
-    if (!item?.href) return false;
-    if (seen.has(item.href)) return false;
-    seen.add(item.href);
+  return links.filter((link) => {
+    if (!link?.href || !link?.label) return false;
+    if (seen.has(link.href)) return false;
+    seen.add(link.href);
     return true;
   });
 }
 
-export function buildCategoryLinks(categories: CategoryLike[] = []) {
+/* =========================
+   BASE ENTITY LINKS
+   ========================= */
+
+export function buildCategoryLinks(categories: BasicEntity[] = []): LinkItem[] {
   return dedupeLinks(
-    categories
-      .filter((c) => c?.slug && c?.name)
-      .map((c) => ({
-        label: String(c.name),
-        href: `/categories/${safeSlug(c.slug)}`,
-      }))
+    categories.map((category) => ({
+      href: `/categories/${category.slug}`,
+      label: normalizeCategoryLabel(category),
+    }))
   );
 }
 
-export function buildLocalityLinks(localities: LocalityLike[] = []) {
+export function buildLocalityLinks(localities: BasicEntity[] = []): LinkItem[] {
   return dedupeLinks(
-    localities
-      .filter((l) => l?.slug && l?.name)
-      .map((l) => ({
-        label: String(l.name),
-        href: `/jaipur/${safeSlug(l.slug)}`,
-      }))
+    localities.map((locality) => ({
+      href: `/jaipur/${locality.slug}`,
+      label: normalizeLocalityLabel(locality),
+    }))
   );
 }
+
+export function buildVenueLinks(venues: BasicEntity[] = []): LinkItem[] {
+  return dedupeLinks(
+    venues.map((venue) => ({
+      href: `/venues/${venue.slug}`,
+      label: normalizeVenueLabel(venue),
+    }))
+  );
+}
+
+export function buildArtistLinks(artists: BasicEntity[] = []): LinkItem[] {
+  return dedupeLinks(
+    artists.map((artist) => ({
+      href: `/artists/${artist.slug}`,
+      label: safeName(artist?.name) || titleCaseFromSlug(artist?.slug),
+    }))
+  );
+}
+
+/* =========================
+   HYBRID PAGE LINKS
+   ========================= */
 
 export function buildHybridLinksForLocality(
-  locality: LocalityLike | null | undefined,
-  categories: CategoryLike[] = []
-) {
-  if (!locality?.slug || !locality?.name) return [];
+  locality: BasicEntity,
+  categories: BasicEntity[] = []
+): LinkItem[] {
+  const localityLabel = normalizeLocalityLabel(locality);
 
   return dedupeLinks(
-    categories
-      .filter((c) => c?.slug && c?.name)
-      .map((c) => ({
-        label: `${c.name} in ${locality.name}`,
-        href: `/events-in/${safeSlug(c.slug)}/${safeSlug(locality.slug)}`,
-      }))
+    categories.map((category) => ({
+      href: `/events-in/${category.slug}/${locality.slug}`,
+      label: `${normalizeCategoryLabel(category)} in ${localityLabel}`,
+    }))
   );
 }
 
 export function buildHybridLinksForCategory(
-  category: CategoryLike | null | undefined,
-  localities: LocalityLike[] = []
-) {
-  if (!category?.slug || !category?.name) return [];
+  category: BasicEntity,
+  localities: BasicEntity[] = []
+): LinkItem[] {
+  const categoryLabel = normalizeCategoryLabel(category);
 
   return dedupeLinks(
-    localities
-      .filter((l) => l?.slug && l?.name)
-      .map((l) => ({
-        label: `${category.name} in ${l.name}`,
-        href: `/events-in/${safeSlug(category.slug)}/${safeSlug(l.slug)}`,
-      }))
+    localities.map((locality) => ({
+      href: `/events-in/${category.slug}/${locality.slug}`,
+      label: `${categoryLabel} in ${normalizeLocalityLabel(locality)}`,
+    }))
   );
 }
 
-export function buildEventParentLinks(args: {
-  category?: CategoryLike | null;
-  locality?: LocalityLike | null;
-  venue?: { slug?: string | null; name?: string | null } | null;
-}) {
-  const links: LinkItem[] = [{ label: 'All Events', href: '/events' }];
+/* =========================
+   EVENT PAGE PARENT LINKS
+   ========================= */
 
-  if (args.category?.slug && args.category?.name) {
+export function buildEventParentLinks({
+  category,
+  locality,
+  venue,
+}: {
+  category?: BasicEntity | null;
+  locality?: BasicEntity | null;
+  venue?: BasicEntity | null;
+}): LinkItem[] {
+  const links: LinkItem[] = [{ href: '/events', label: 'All Events' }];
+
+  if (category?.slug) {
     links.push({
-      label: `${args.category.name} in Jaipur`,
-      href: `/categories/${safeSlug(args.category.slug)}`,
+      href: `/categories/${category.slug}`,
+      label: normalizeCategoryLabel(category),
     });
   }
 
-  if (args.locality?.slug && args.locality?.name) {
+  if (locality?.slug) {
     links.push({
-      label: `Things to do in ${args.locality.name}`,
-      href: `/jaipur/${safeSlug(args.locality.slug)}`,
+      href: `/jaipur/${locality.slug}`,
+      label: normalizeLocalityLabel(locality),
     });
   }
 
-  if (
-    args.category?.slug &&
-    args.category?.name &&
-    args.locality?.slug &&
-    args.locality?.name
-  ) {
+  if (venue?.slug) {
     links.push({
-      label: `${args.category.name} in ${args.locality.name}`,
-      href: `/events-in/${safeSlug(args.category.slug)}/${safeSlug(args.locality.slug)}`,
+      href: `/venues/${venue.slug}`,
+      label: normalizeVenueLabel(venue),
     });
   }
 
-  if (args.venue?.slug && args.venue?.name) {
+  if (category?.slug && locality?.slug) {
     links.push({
-      label: `More at ${args.venue.name}`,
-      href: `/venues/${safeSlug(args.venue.slug)}`,
+      href: `/events-in/${category.slug}/${locality.slug}`,
+      label: `${normalizeCategoryLabel(category)} in ${normalizeLocalityLabel(locality)}`,
+    });
+  }
+
+  return dedupeLinks(links);
+}
+
+/* =========================
+   ARTIST PAGE LINKS
+   ========================= */
+
+export function buildArtistDiscoveryLinks({
+  categories = [],
+  localities = [],
+  venues = [],
+}: {
+  categories?: BasicEntity[];
+  localities?: BasicEntity[];
+  venues?: BasicEntity[];
+}): LinkItem[] {
+  const links: LinkItem[] = [{ href: '/events', label: 'All Jaipur Events' }];
+
+  categories.slice(0, 6).forEach((category) => {
+    links.push({
+      href: `/categories/${category.slug}`,
+      label: normalizeCategoryLabel(category),
+    });
+  });
+
+  localities.slice(0, 6).forEach((locality) => {
+    links.push({
+      href: `/jaipur/${locality.slug}`,
+      label: normalizeLocalityLabel(locality),
+    });
+  });
+
+  venues.slice(0, 4).forEach((venue) => {
+    links.push({
+      href: `/venues/${venue.slug}`,
+      label: normalizeVenueLabel(venue),
+    });
+  });
+
+  return dedupeLinks(links);
+}
+
+/* =========================
+   VENUE PAGE LINKS
+   ========================= */
+
+export function buildVenueDiscoveryLinks({
+  locality,
+  categories = [],
+}: {
+  locality?: BasicEntity | null;
+  categories?: BasicEntity[];
+}): LinkItem[] {
+  const links: LinkItem[] = [
+    { href: '/events', label: 'All Jaipur Events' },
+  ];
+
+  if (locality?.slug) {
+    links.push({
+      href: `/jaipur/${locality.slug}`,
+      label: `Things to do in ${normalizeLocalityLabel(locality)}`,
+    });
+  }
+
+  categories.slice(0, 6).forEach((category) => {
+    links.push({
+      href: `/categories/${category.slug}`,
+      label: normalizeCategoryLabel(category),
+    });
+
+    if (locality?.slug) {
+      links.push({
+        href: `/events-in/${category.slug}/${locality.slug}`,
+        label: `${normalizeCategoryLabel(category)} in ${normalizeLocalityLabel(locality)}`,
+      });
+    }
+  });
+
+  return dedupeLinks(links);
+}
+
+/* =========================
+   LOCALITY PAGE LINKS
+   ========================= */
+
+export function buildLocalityDiscoveryLinks({
+  locality,
+  categories = [],
+  venues = [],
+}: {
+  locality: BasicEntity;
+  categories?: BasicEntity[];
+  venues?: BasicEntity[];
+}): LinkItem[] {
+  const links: LinkItem[] = [
+    { href: '/events', label: 'All Jaipur Events' },
+  ];
+
+  categories.slice(0, 8).forEach((category) => {
+    links.push({
+      href: `/categories/${category.slug}`,
+      label: normalizeCategoryLabel(category),
+    });
+
+    if (locality?.slug) {
+      links.push({
+        href: `/events-in/${category.slug}/${locality.slug}`,
+        label: `${normalizeCategoryLabel(category)} in ${normalizeLocalityLabel(locality)}`,
+      });
+    }
+  });
+
+  venues.slice(0, 6).forEach((venue) => {
+    links.push({
+      href: `/venues/${venue.slug}`,
+      label: normalizeVenueLabel(venue),
+    });
+  });
+
+  return dedupeLinks(links);
+}
+
+/* =========================
+   CATEGORY PAGE LINKS
+   ========================= */
+
+export function buildCategoryDiscoveryLinks({
+  category,
+  localities = [],
+  venues = [],
+}: {
+  category: BasicEntity;
+  localities?: BasicEntity[];
+  venues?: BasicEntity[];
+}): LinkItem[] {
+  const links: LinkItem[] = [
+    { href: '/events', label: 'All Jaipur Events' },
+  ];
+
+  localities.slice(0, 8).forEach((locality) => {
+    links.push({
+      href: `/jaipur/${locality.slug}`,
+      label: normalizeLocalityLabel(locality),
+    });
+
+    if (category?.slug) {
+      links.push({
+        href: `/events-in/${category.slug}/${locality.slug}`,
+        label: `${normalizeCategoryLabel(category)} in ${normalizeLocalityLabel(locality)}`,
+      });
+    }
+  });
+
+  venues.slice(0, 6).forEach((venue) => {
+    links.push({
+      href: `/venues/${venue.slug}`,
+      label: normalizeVenueLabel(venue),
+    });
+  });
+
+  return dedupeLinks(links);
+}
+
+/* =========================
+   EVENT-LEVEL CONTEXTUAL LINKS
+   ========================= */
+
+export function buildEventContextualLinks(event: EventLike): LinkItem[] {
+  const links: LinkItem[] = [{ href: '/events', label: 'All Jaipur Events' }];
+
+  if (event?.category) {
+    const categorySlug = String(event.category).toLowerCase();
+    links.push({
+      href: `/events?category=${encodeURIComponent(categorySlug)}`,
+      label: `More ${String(event.category).replace(/-/g, ' ')}`,
+    });
+  }
+
+  if (event?.locality) {
+    links.push({
+      href: `/events?locality=${encodeURIComponent(event.locality)}`,
+      label: `More in ${String(event.locality).replace(/-/g, ' ')}`,
+    });
+  }
+
+  return dedupeLinks(links);
+}
+
+/* =========================
+   BREADCRUMB HELPERS
+   ========================= */
+
+export function buildEventBreadcrumbs({
+  eventTitle,
+  category,
+  locality,
+}: {
+  eventTitle: string;
+  category?: BasicEntity | null;
+  locality?: BasicEntity | null;
+}): LinkItem[] {
+  const links: LinkItem[] = [
+    { href: '/', label: 'Home' },
+    { href: '/events', label: 'Events' },
+  ];
+
+  if (category?.slug) {
+    links.push({
+      href: `/categories/${category.slug}`,
+      label: normalizeCategoryLabel(category),
+    });
+  }
+
+  if (locality?.slug) {
+    links.push({
+      href: `/jaipur/${locality.slug}`,
+      label: normalizeLocalityLabel(locality),
+    });
+  }
+
+  links.push({
+    href: '#',
+    label: eventTitle,
+  });
+
+  return links;
+}
+
+export function buildArtistBreadcrumbs(artistName: string): LinkItem[] {
+  return [
+    { href: '/', label: 'Home' },
+    { href: '/events', label: 'Events' },
+    { href: '/artists', label: 'Artists' },
+    { href: '#', label: artistName },
+  ];
+}
+
+export function buildVenueBreadcrumbs(venueName: string): LinkItem[] {
+  return [
+    { href: '/', label: 'Home' },
+    { href: '/events', label: 'Events' },
+    { href: '/venues', label: 'Venues' },
+    { href: '#', label: venueName },
+  ];
+}
+
+/* =========================
+   CROSS-ENTITY SUPPORT
+   ========================= */
+
+export function buildCrossEntityLinks({
+  artist,
+  venue,
+  locality,
+  category,
+}: {
+  artist?: BasicEntity | null;
+  venue?: BasicEntity | null;
+  locality?: BasicEntity | null;
+  category?: BasicEntity | null;
+}): LinkItem[] {
+  const links: LinkItem[] = [];
+
+  if (artist?.slug) {
+    links.push({
+      href: `/artists/${artist.slug}`,
+      label: safeName(artist?.name) || titleCaseFromSlug(artist?.slug),
+    });
+  }
+
+  if (venue?.slug) {
+    links.push({
+      href: `/venues/${venue.slug}`,
+      label: normalizeVenueLabel(venue),
+    });
+  }
+
+  if (locality?.slug) {
+    links.push({
+      href: `/jaipur/${locality.slug}`,
+      label: normalizeLocalityLabel(locality),
+    });
+  }
+
+  if (category?.slug) {
+    links.push({
+      href: `/categories/${category.slug}`,
+      label: normalizeCategoryLabel(category),
+    });
+  }
+
+  if (category?.slug && locality?.slug) {
+    links.push({
+      href: `/events-in/${category.slug}/${locality.slug}`,
+      label: `${normalizeCategoryLabel(category)} in ${normalizeLocalityLabel(locality)}`,
     });
   }
 
