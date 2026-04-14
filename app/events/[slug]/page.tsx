@@ -57,6 +57,8 @@ export default async function EventPage({ params }: any) {
     .neq('id', event.id)
     .limit(6);
 
+  const safeRelated = Array.isArray(related) ? related : [];
+
   return (
     <main className="max-w-7xl mx-auto px-4 md:px-6 pb-20">
 
@@ -103,12 +105,12 @@ export default async function EventPage({ params }: any) {
       </p>
 
       {/* Related */}
-      {related?.length > 0 && (
+      {safeRelated.length > 0 && (
         <section className="mt-12">
           <h2 className="text-xl font-semibold mb-4">Related Events</h2>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {related.map((e: any) => (
+            {safeRelated.map((e: any) => (
               <EventCard key={e.id} event={e} />
             ))}
           </div>
