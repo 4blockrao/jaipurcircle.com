@@ -25,7 +25,7 @@ function resolveLocalityName(event: any, locality: any) {
 }
 
 function resolvePrice(event: any) {
-  if (event?.is_free) return 'Free';
+  if (event?.is_free) return 'Free Entry';
   if (event?.price_min) return `₹${event.price_min}`;
   if (event?.ticket_price) return `₹${event.ticket_price}`;
   return 'Price TBA';
@@ -41,7 +41,7 @@ function resolveDescription(event: any) {
 }
 
 function resolveStatus(event: any) {
-  if (event?.status) return event.status;
+  if (event?.status) return String(event.status).toLowerCase();
 
   const startValue = event?.start_time || event?.start_date;
   if (!startValue) return 'upcoming';
@@ -51,6 +51,14 @@ function resolveStatus(event: any) {
 
   if (Number.isNaN(eventDate.getTime())) return 'upcoming';
   return eventDate < now ? 'past' : 'upcoming';
+}
+
+function resolveCategoryLabel(category: any, event: any) {
+  return (
+    category?.name ||
+    event?.category?.replace(/-/g, ' ') ||
+    'Event'
+  );
 }
 
 function formatEventDateTime(value?: string | null) {
@@ -73,6 +81,18 @@ function formatEventDateOnly(value?: string | null) {
 
   return date.toLocaleDateString('en-IN', {
     dateStyle: 'full',
+  });
+}
+
+function formatEventTimeOnly(value?: string | null) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toLocaleTimeString('en-IN', {
+    hour: 'numeric',
+    minute: '2-digit',
   });
 }
 
@@ -144,6 +164,61 @@ function buildFaq(event: any, venueName: string, localityName: string, price: st
   ];
 }
 
+function buildWhyAttend(event: any, categoryLabel: string, localityName: string, venueName: string) {
+  return [
+    {
+      title: 'Why it stands out',
+      text:
+        event?.short_description ||
+        `A strong ${categoryLabel.toLowerCase()} experience in Jaipur with clear venue, timing, and discovery context.`,
+    },
+    {
+      title: 'Who should go',
+      text: `Ideal for people interested in ${categoryLabel.toLowerCase()} around ${localityName}.`,
+    },
+    {
+      title: 'Venue advantage',
+      text: `${venueName} gives this event a strong local context and makes it easy to discover similar experiences nearby.`,
+    },
+  ];
+}
+
+function buildDiscoveryLinks(primaryCategory: any, locality: any, venue: any, localityName: string) {
+  const links = [
+    { href: '/events', label: 'All Events' },
+  ];
+
+  if (primaryCategory?.slug && primaryCategory?.name) {
+    links.push({
+      href: `/categories/${primaryCategory.slug}`,
+      label: `${primaryCategory.name} in Jaipur`,
+    });
+  }
+
+  if (locality?.slug) {
+    links.push({
+      href: `/jaipur/${locality.slug}`,
+      label: `Things to do in ${localityName}`,
+    });
+  }
+
+  if (venue?.slug && venue?.name) {
+    links.push({
+      href: `/venues/${venue.slug}`,
+      label: `More at ${venue.name}`,
+    });
+  }
+
+  if (primaryCategory?.slug && locality?.slug) {
+    links.push({
+      href: `/events-in/${primaryCategory.slug}/${locality.slug}`,
+      label: `${primaryCategory.name} in ${localityName}`,
+    });
+  }
+
+  return links;
+}
+
 /* ========================= */
 
 export async function generateMetadata(props: any) {
@@ -199,8 +274,11 @@ export default async function EventPage(props: any) {
   const status = resolveStatus(event);
   const isCompleted = status === 'past';
   const primaryCategory = categories?.[0] || null;
+  const categoryLabel = resolveCategoryLabel(primaryCategory, event);
   const highlights = buildHighlights(event, venueName, localityName, price);
   const faqItems = buildFaq(event, venueName, localityName, price);
+  const whyAttend = buildWhyAttend(event, categoryLabel, localityName, venueName);
+  const discoveryLinks = buildDiscoveryLinks(primaryCategory, locality, venue, localityName);
 
   const { data: artistLinks } = await supabase
     .from('event_artists_view')
@@ -278,9 +356,20 @@ export default async function EventPage(props: any) {
         .order('start_time', { ascending: true })
         .limit(6);
 
-      relatedByCategory = categoryEvents || [];
+        relatedByCategory = categoryEvents || [];
     }
   }
+
+  let relatedUpcomingJaipur: any[] = [];
+  const { data: jaipurUpcoming } = await supabase
+    .from('events')
+    .select('*')
+    .eq('editorial_status', 'published')
+    .neq('id', event.id)
+    .order('start_time', { ascending: true })
+    .limit(8);
+
+  relatedUpcomingJaipur = jaipurUpcoming || [];
 
   const moreFromVenue = dedupeEvents(moreFromVenueRaw, event.id);
   const venueIds = new Set(moreFromVenue.map((e: any) => e.id));
@@ -305,6 +394,19 @@ export default async function EventPage(props: any) {
         !venueIds.has(e.id) &&
         !artistIdsUsed.has(e.id) &&
         !localityIdsUsed.has(e.id)
+    ),
+    event.id
+  );
+
+  const categoryIdsUsed = new Set(relatedByCategory.map((e: any) => e.id));
+
+  relatedUpcomingJaipur = dedupeEvents(
+    relatedUpcomingJaipur.filter(
+      (e: any) =>
+        !venueIds.has(e.id) &&
+        !artistIdsUsed.has(e.id) &&
+        !localityIdsUsed.has(e.id) &&
+        !categoryIdsUsed.has(e.id)
     ),
     event.id
   );
@@ -336,34 +438,33 @@ export default async function EventPage(props: any) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
       />
 
-      <section className="relative h-[320px] md:h-[460px] rounded-3xl overflow-hidden mt-6">
+      <section className="relative h-[340px] md:h-[500px] rounded-3xl overflow-hidden mt-6">
         <img src={image} alt={event.title} className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-black/15" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/10" />
 
         <div className="absolute top-5 left-5 flex flex-wrap gap-2">
-          {primaryCategory?.slug && primaryCategory?.name ? (
-            <a
-              href={`/categories/${primaryCategory.slug}`}
-              className="px-3 py-1.5 rounded-full bg-white/15 backdrop-blur text-white text-xs md:text-sm hover:bg-white/20 transition"
-            >
-              {primaryCategory.name}
-            </a>
-          ) : null}
+          <span className="px-3 py-1.5 rounded-full bg-white/15 backdrop-blur text-white text-xs md:text-sm font-medium">
+            {categoryLabel}
+          </span>
 
           <span
-            className={`px-3 py-1.5 rounded-full text-xs md:text-sm ${
-              isCompleted
-                ? 'bg-amber-500 text-white'
-                : 'bg-emerald-500 text-white'
+            className={`px-3 py-1.5 rounded-full text-xs md:text-sm font-medium ${
+              isCompleted ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white'
             }`}
           >
             {isCompleted ? 'Past Event' : 'Upcoming Event'}
           </span>
+
+          {!isCompleted && price !== 'Price TBA' ? (
+            <span className="px-3 py-1.5 rounded-full bg-black/45 backdrop-blur text-white text-xs md:text-sm font-medium">
+              {price}
+            </span>
+          ) : null}
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 p-5 md:p-8 text-white">
           <div className="max-w-4xl">
-            <h1 className="text-2xl md:text-5xl font-bold leading-tight">
+            <h1 className="text-2xl md:text-5xl font-bold leading-tight tracking-tight">
               {event.title}
             </h1>
 
@@ -380,56 +481,61 @@ export default async function EventPage(props: any) {
               <span>•</span>
               <span>{localityName}</span>
             </div>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              {!isCompleted ? (
+                event?.registration_url ? (
+                  <a
+                    href={event.registration_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm md:text-base font-semibold text-gray-900 hover:bg-gray-100 transition"
+                  >
+                    Book Tickets
+                  </a>
+                ) : (
+                  <a
+                    href="/events"
+                    className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm md:text-base font-semibold text-gray-900 hover:bg-gray-100 transition"
+                  >
+                    Explore More Events
+                  </a>
+                )
+              ) : (
+                <a
+                  href="/events"
+                  className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm md:text-base font-semibold text-gray-900 hover:bg-gray-100 transition"
+                >
+                  Browse Upcoming Events
+                </a>
+              )}
+
+              {venue?.slug ? (
+                <a
+                  href={`/venues/${venue.slug}`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-6 py-3 text-sm md:text-base font-medium text-white backdrop-blur hover:bg-white/15 transition"
+                >
+                  View Venue
+                </a>
+              ) : null}
+            </div>
           </div>
         </div>
       </section>
 
       <section className="mt-6 flex flex-wrap gap-3 text-sm">
-        <a
-          href="/events"
-          className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
-        >
-          All Events
-        </a>
-
-        {primaryCategory?.slug && primaryCategory?.name ? (
+        {discoveryLinks.map((link) => (
           <a
-            href={`/categories/${primaryCategory.slug}`}
+            key={link.href}
+            href={link.href}
             className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
           >
-            {primaryCategory.name} in Jaipur
+            {link.label}
           </a>
-        ) : null}
-
-        {locality?.slug ? (
-          <a
-            href={`/jaipur/${locality.slug}`}
-            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
-          >
-            Things to do in {localityName}
-          </a>
-        ) : null}
-
-        {primaryCategory?.slug && locality?.slug ? (
-          <a
-            href={`/events-in/${primaryCategory.slug}/${locality.slug}`}
-            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
-          >
-            {primaryCategory.name} in {localityName}
-          </a>
-        ) : null}
-
-        {venue?.slug ? (
-          <a
-            href={`/venues/${venue.slug}`}
-            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
-          >
-            More at {venueName}
-          </a>
-        ) : null}
+        ))}
       </section>
 
-      <section className="mt-8 grid grid-cols-1 lg:grid-cols-[1.6fr_0.9fr] gap-8">
+      <section className="mt-8 grid grid-cols-1 lg:grid-cols-[1.55fr_0.9fr] gap-8">
         <div className="space-y-8">
           {isCompleted ? (
             <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 md:p-6">
@@ -438,7 +544,7 @@ export default async function EventPage(props: any) {
               </h2>
               <p className="mt-2 text-sm md:text-base text-amber-800 leading-relaxed">
                 This page remains live as part of JaipurCircle’s event archive. Explore similar
-                upcoming events by category, artist, venue and locality below.
+                upcoming events below by category, venue, locality and artist.
               </p>
             </section>
           ) : null}
@@ -469,23 +575,24 @@ export default async function EventPage(props: any) {
                 </ul>
               </div>
             ) : null}
+          </section>
 
-            <div className="mt-6 grid sm:grid-cols-2 gap-4">
-              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
-                <h3 className="text-sm font-semibold text-gray-900 mb-2">What to expect</h3>
-                <p className="text-sm text-gray-600 leading-relaxed">
-                  Expect a well-curated Jaipur event experience with venue details, pricing,
-                  timing and related event discovery all in one place.
-                </p>
-              </div>
+          <section className="bg-white rounded-3xl border border-gray-200 p-6 md:p-8">
+            <h2 className="text-xl md:text-2xl font-semibold text-gray-900 mb-4">
+              Why attend
+            </h2>
 
-              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
-                <h3 className="text-sm font-semibold text-gray-900 mb-2">Who should attend</h3>
-                <p className="text-sm text-gray-600 leading-relaxed">
-                  Best for people interested in {primaryCategory?.name?.toLowerCase() || 'live events'}
-                  {localityName ? ` around ${localityName}` : ' in Jaipur'}.
-                </p>
-              </div>
+            <div className="grid sm:grid-cols-3 gap-4">
+              {whyAttend.map((item, index) => (
+                <div key={index} className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-2">
+                    {item.title}
+                  </h3>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    {item.text}
+                  </p>
+                </div>
+              ))}
             </div>
           </section>
 
@@ -496,15 +603,17 @@ export default async function EventPage(props: any) {
 
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
-                <div className="text-xs uppercase tracking-wide text-gray-500">Date & Time</div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Date</div>
                 <div className="mt-1 text-sm text-gray-800">
-                  {formatEventDateTime(event.start_time || event.start_date) || 'To be announced'}
+                  {formatEventDateOnly(event.start_time || event.start_date) || 'TBA'}
                 </div>
               </div>
 
               <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
-                <div className="text-xs uppercase tracking-wide text-gray-500">Price</div>
-                <div className="mt-1 text-sm text-gray-800">{price}</div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Time</div>
+                <div className="mt-1 text-sm text-gray-800">
+                  {formatEventTimeOnly(event.start_time || event.start_date) || 'TBA'}
+                </div>
               </div>
 
               <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
@@ -513,8 +622,50 @@ export default async function EventPage(props: any) {
               </div>
 
               <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
+                <div className="text-xs uppercase tracking-wide text-gray-500">Price</div>
+                <div className="mt-1 text-sm text-gray-800">{price}</div>
+              </div>
+            </div>
+          </section>
+
+          <section className="bg-white rounded-3xl border border-gray-200 p-6 md:p-8">
+            <h2 className="text-xl md:text-2xl font-semibold text-gray-900 mb-4">
+              Venue & locality
+            </h2>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
+                <div className="text-xs uppercase tracking-wide text-gray-500">Venue</div>
+                <div className="mt-1 text-sm font-medium text-gray-900">{venueName}</div>
+                {event?.venue_address ? (
+                  <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+                    {event.venue_address}
+                  </p>
+                ) : null}
+                {venue?.slug ? (
+                  <a
+                    href={`/venues/${venue.slug}`}
+                    className="inline-block mt-3 text-sm text-blue-600 hover:underline"
+                  >
+                    View venue page
+                  </a>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
                 <div className="text-xs uppercase tracking-wide text-gray-500">Locality</div>
-                <div className="mt-1 text-sm text-gray-800">{localityName}</div>
+                <div className="mt-1 text-sm font-medium text-gray-900">{localityName}</div>
+                <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+                  Explore what else is happening in this part of Jaipur and discover similar nearby events.
+                </p>
+                {locality?.slug ? (
+                  <a
+                    href={`/jaipur/${locality.slug}`}
+                    className="inline-block mt-3 text-sm text-blue-600 hover:underline"
+                  >
+                    Explore {localityName}
+                  </a>
+                ) : null}
               </div>
             </div>
           </section>
@@ -545,14 +696,20 @@ export default async function EventPage(props: any) {
             </h2>
 
             <div className="flex flex-wrap gap-2">
-              {(event?.tags || []).map((tag: string, index: number) => (
-                <span
-                  key={`${tag}-${index}`}
-                  className="px-3 py-1.5 rounded-full bg-gray-100 text-sm text-gray-700"
-                >
-                  {String(tag).replace(/-/g, ' ')}
+              {(event?.tags || []).length > 0 ? (
+                (event.tags || []).map((tag: string, index: number) => (
+                  <span
+                    key={`${tag}-${index}`}
+                    className="px-3 py-1.5 rounded-full bg-gray-100 text-sm text-gray-700"
+                  >
+                    {String(tag).replace(/-/g, ' ')}
+                  </span>
+                ))
+              ) : (
+                <span className="text-sm text-gray-500">
+                  Tags will appear here as this event gets enriched.
                 </span>
-              ))}
+              )}
             </div>
           </section>
 
@@ -599,7 +756,7 @@ export default async function EventPage(props: any) {
               <div>
                 <div className="text-xs uppercase tracking-wide text-gray-500">Time</div>
                 <div className="mt-1 text-gray-800">
-                  {formatEventDateTime(event.start_time || event.start_date) || 'TBA'}
+                  {formatEventTimeOnly(event.start_time || event.start_date) || 'TBA'}
                 </div>
               </div>
 
@@ -624,6 +781,13 @@ export default async function EventPage(props: any) {
                   {isCompleted ? 'Past Event' : 'Upcoming Event'}
                 </div>
               </div>
+
+              {event?.organizer_name ? (
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-gray-500">Organizer</div>
+                  <div className="mt-1 text-gray-800">{event.organizer_name}</div>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-6 flex flex-col gap-3">
@@ -718,7 +882,7 @@ export default async function EventPage(props: any) {
       {relatedByCategory.length > 0 ? (
         <section className="mt-14">
           <h2 className="text-2xl font-semibold text-gray-900 mb-5">
-            Similar {primaryCategory?.name || 'events'} in Jaipur
+            Similar {categoryLabel} in Jaipur
           </h2>
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
             {relatedByCategory.map((e: any) => (
@@ -728,17 +892,35 @@ export default async function EventPage(props: any) {
         </section>
       ) : null}
 
+      {relatedUpcomingJaipur.length > 0 ? (
+        <section className="mt-14">
+          <h2 className="text-2xl font-semibold text-gray-900 mb-5">
+            Upcoming events in Jaipur
+          </h2>
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {relatedUpcomingJaipur.slice(0, 6).map((e: any) => (
+              <EventCard key={e.id} event={e} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 md:hidden">
         {!isCompleted ? (
           event?.registration_url ? (
-            <a
-              href={event.registration_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full text-center bg-blue-600 text-white py-3 rounded-2xl font-semibold"
-            >
-              Book Tickets
-            </a>
+            <div className="flex items-center gap-3">
+              <div className="min-w-[90px] text-sm font-semibold text-gray-900">
+                {price}
+              </div>
+              <a
+                href={event.registration_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center bg-blue-600 text-white py-3 rounded-2xl font-semibold"
+              >
+                Book Tickets
+              </a>
+            </div>
           ) : (
             <a
               href="/events"
