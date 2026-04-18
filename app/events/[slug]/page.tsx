@@ -2,51 +2,13 @@ import { notFound } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import EventSectionGrid from "@/components/events/EventSectionGrid";
 import {
-  getEventsByArtist,
-  getEventsByLocality,
-  getEventsByVenue,
-} from "@/lib/events/queries";
+  formatEventDateTime,
+  getEventDisplayState,
+  pickEventDate,
+} from "@/lib/events/core";
+import { buildEventRecommendationSections } from "@/lib/events/recommendations";
 
 export const dynamic = "force-dynamic";
-
-function pickEventDate(event: any) {
-  return event?.start_date || event?.start_time || null;
-}
-
-function pickEventEndDate(event: any) {
-  return event?.end_date || event?.end_time || event?.start_date || event?.start_time || null;
-}
-
-function getEventDisplayState(event: any) {
-  const now = new Date();
-
-  const startRaw = pickEventDate(event);
-  const endRaw = pickEventEndDate(event);
-
-  const start = startRaw ? new Date(startRaw) : null;
-  const end = endRaw ? new Date(endRaw) : null;
-
-  if (!start || Number.isNaN(start.getTime())) return "upcoming";
-  if (!end || Number.isNaN(end.getTime())) return start < now ? "ended" : "upcoming";
-
-  if (end < now) return "ended";
-  if (start > now) return "upcoming";
-  return "ongoing";
-}
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return "Date TBA";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "Date TBA";
-  return d.toLocaleString("en-IN", {
-    dateStyle: "long",
-    timeStyle: "short",
-  });
-}
-
-function sectionTitlePrefix(state: string) {
-  return state === "ended" ? "More upcoming" : "More";
-}
 
 export default async function EventPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -79,10 +41,6 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
     .map((row: any) => row.artist)
     .filter(Boolean);
 
-  const artistIds = (artistRows || [])
-    .map((row: any) => row.artist_id)
-    .filter(Boolean);
-
   let similarEvents: any[] = [];
 
   const rpcRes = await supabase.rpc("get_similar_upcoming_events", {
@@ -113,28 +71,12 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
     similarEvents = data || [];
   }
 
-  const [localityEvents, venueEvents, artistEvents] = await Promise.all([
-    getEventsByLocality(supabase, {
-      eventId: event.id,
-      localityId: event.locality_id,
-      localitySlug: event.locality || locality?.slug || null,
-      limit: 6,
-    }),
-    getEventsByVenue(supabase, {
-      eventId: event.id,
-      venueId: event.venue_id,
-      venueName: event.venue_name || venue?.name || null,
-      limit: 6,
-    }),
-    getEventsByArtist(supabase, {
-      eventId: event.id,
-      artistIds,
-      limit: 6,
-    }),
-  ]);
-
-  const eventDate = pickEventDate(event);
-  const titlePrefix = sectionTitlePrefix(state);
+  const recommendationSections = await buildEventRecommendationSections(supabase, {
+    event,
+    artists,
+    locality,
+    venue,
+  });
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-8">
@@ -151,7 +93,7 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
           <strong>{event.title}</strong> is scheduled at{" "}
           <strong>{event.venue_name || "Venue TBA"}</strong>,{" "}
           {event.locality || locality?.name || "Jaipur"}, Jaipur on{" "}
-          {formatDate(eventDate)}.
+          {formatEventDateTime(pickEventDate(event))}.
         </p>
 
         {event.short_description ? (
@@ -213,7 +155,7 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
               <a key={e.id} href={`/events/${e.slug}`} className="border p-3 rounded">
                 <p className="font-medium">{e.title}</p>
                 <p className="text-sm text-gray-500">
-                  {formatDate(e.start_date || e.start_time)}
+                  {formatEventDateTime(e.start_date || e.start_time)}
                 </p>
               </a>
             ))}
@@ -221,28 +163,15 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
         </div>
       )}
 
-      <EventSectionGrid
-        title={`${titlePrefix} events in ${event.locality || locality?.name || "this locality"}`}
-        description={`Strengthen locality discovery around ${event.locality || locality?.name || "this part of Jaipur"} by exploring related event pages.`}
-        events={localityEvents}
-        emptyText="No additional locality-linked events found right now."
-      />
-
-      <EventSectionGrid
-        title={`${titlePrefix} events at ${event.venue_name || venue?.name || "this venue"}`}
-        description={`Build venue authority by connecting this event to more experiences at ${event.venue_name || venue?.name || "this venue"}.`}
-        events={venueEvents}
-        emptyText="No additional venue-linked events found right now."
-      />
-
-      {artists.length > 0 ? (
+      {recommendationSections.map((section) => (
         <EventSectionGrid
-          title={`${titlePrefix} events by ${artists[0]?.name || "this artist"}`}
-          description={`Connect this event to other Jaipur appearances by ${artists[0]?.name || "this artist"} to strengthen the artist-event graph.`}
-          events={artistEvents}
-          emptyText="No additional artist-linked Jaipur events found right now."
+          key={section.key}
+          title={section.title}
+          description={section.description}
+          events={section.events}
+          emptyText=""
         />
-      ) : null}
+      ))}
     </main>
   );
 }
