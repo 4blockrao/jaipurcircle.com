@@ -1,4 +1,27 @@
-import { getEventDisplayState } from "@/lib/events/getEventDisplayState";
+function pickEventDate(event: any) {
+  return event?.start_date || event?.start_time || null;
+}
+
+function pickEventEndDate(event: any) {
+  return event?.end_date || event?.end_time || event?.start_date || event?.start_time || null;
+}
+
+function getEventDisplayState(event: any) {
+  const now = new Date();
+
+  const startRaw = pickEventDate(event);
+  const endRaw = pickEventEndDate(event);
+
+  const start = startRaw ? new Date(startRaw) : null;
+  const end = endRaw ? new Date(endRaw) : null;
+
+  if (!start || Number.isNaN(start.getTime())) return "upcoming";
+  if (!end || Number.isNaN(end.getTime())) return start < now ? "ended" : "upcoming";
+
+  if (end < now) return "ended";
+  if (start > now) return "upcoming";
+  return "ongoing";
+}
 
 function resolveImage(event: any) {
   return (
@@ -21,6 +44,7 @@ function resolvePrice(event: any) {
   if (event?.is_free) return "Free";
   if (event?.price_min) return `₹${event.price_min}`;
   if (event?.ticket_price) return `₹${event.ticket_price}`;
+  if (event?.price_max) return `Up to ₹${event.price_max}`;
   return "Price TBA";
 }
 
@@ -30,7 +54,7 @@ function resolveCategory(event: any) {
 }
 
 function formatDateTime(event: any) {
-  const value = event?.start_time || event?.start_date;
+  const value = pickEventDate(event);
   if (!value) return "Date TBA";
 
   const date = new Date(value);
@@ -52,25 +76,13 @@ function resolveDescription(event: any) {
 }
 
 function resolveStatusLabel(event: any) {
-  const state = getEventDisplayState({
-    start_date: event?.start_date || null,
-    end_date: event?.end_date || null,
-    status: event?.status || null,
-  });
+  const state = getEventDisplayState(event);
 
   switch (state) {
     case "ended":
       return "Event Closed";
-    case "today":
-      return "Happening Today";
-    case "live":
+    case "ongoing":
       return "Live Now";
-    case "cancelled":
-      return "Cancelled";
-    case "postponed":
-      return "Postponed";
-    case "rescheduled":
-      return "Rescheduled";
     default:
       return "Upcoming";
   }
@@ -108,11 +120,7 @@ export default function EventCard({ event }: { event: any }) {
 
           <span
             className={`rounded-full px-3 py-1.5 text-xs font-medium text-white ${
-              isEnded
-                ? "bg-amber-500"
-                : statusLabel === "Happening Today" || statusLabel === "Live Now"
-                ? "bg-emerald-500"
-                : "bg-blue-600"
+              isEnded ? "bg-amber-500" : statusLabel === "Live Now" ? "bg-emerald-500" : "bg-blue-600"
             }`}
           >
             {statusLabel}
