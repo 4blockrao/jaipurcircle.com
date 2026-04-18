@@ -150,16 +150,16 @@ export default async function LocalityPage(props: any) {
     .eq('is_indexable', true)
     .order('created_at', { ascending: true });
 
-  const categoryLinks = (localityCategoryPages || [])
+  const categoryLinks: { slug: string; name: string }[] = (localityCategoryPages || [])
     .map((row: any) => {
       const cat = Array.isArray(row.categories) ? row.categories[0] : row.categories;
       if (!cat?.slug) return null;
       return {
-        slug: cat.slug,
-        name: cat.name || cat.slug,
+        slug: String(cat.slug),
+        name: String(cat.name || cat.slug),
       };
     })
-    .filter(Boolean);
+    .filter((item): item is { slug: string; name: string } => item !== null);
 
   const uniqueVenues = [...new Set(events.map((e: any) => e?.venue_name).filter(Boolean))]
     .slice(0, 8)
