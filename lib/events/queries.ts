@@ -143,3 +143,92 @@ export async function getEventsByArtist(
 
   return sortEvents(dedupeById(events || [])).slice(0, limit);
 }
+
+export async function getUpcomingEventsForLocality(
+  supabase: any,
+  {
+    localityId,
+    localitySlug,
+    limit = 6,
+  }: {
+    localityId?: string | null;
+    localitySlug?: string | null;
+    limit?: number;
+  }
+) {
+  let query = applyPublicEventFilters(
+    supabase.from("events").select("*")
+  );
+
+  if (localityId && localitySlug) {
+    query = query.or(`locality_id.eq.${localityId},locality.eq.${localitySlug}`);
+  } else if (localityId) {
+    query = query.eq("locality_id", localityId);
+  } else if (localitySlug) {
+    query = query.eq("locality", localitySlug);
+  } else {
+    return [];
+  }
+
+  const { data } = await query
+    .gte("start_date", new Date().toISOString())
+    .order("start_date", { ascending: true })
+    .limit(limit);
+
+  return dedupeById(data || []);
+}
+
+export async function getPastEventsForLocality(
+  supabase: any,
+  {
+    localityId,
+    localitySlug,
+    limit = 6,
+  }: {
+    localityId?: string | null;
+    localitySlug?: string | null;
+    limit?: number;
+  }
+) {
+  let query = applyPublicEventFilters(
+    supabase.from("events").select("*")
+  );
+
+  if (localityId && localitySlug) {
+    query = query.or(`locality_id.eq.${localityId},locality.eq.${localitySlug}`);
+  } else if (localityId) {
+    query = query.eq("locality_id", localityId);
+  } else if (localitySlug) {
+    query = query.eq("locality", localitySlug);
+  } else {
+    return [];
+  }
+
+  const { data } = await query
+    .lt("start_date", new Date().toISOString())
+    .order("start_date", { ascending: false })
+    .limit(limit);
+
+  return dedupeById(data || []);
+}
+
+export async function getVenuesForLocality(
+  supabase: any,
+  {
+    localityId,
+    limit = 6,
+  }: {
+    localityId?: string | null;
+    limit?: number;
+  }
+) {
+  if (!localityId) return [];
+
+  const { data } = await supabase
+    .from("venues")
+    .select("*")
+    .eq("locality_id", localityId)
+    .limit(limit);
+
+  return data || [];
+}
