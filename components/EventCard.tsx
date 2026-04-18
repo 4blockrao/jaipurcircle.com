@@ -1,27 +1,7 @@
-function pickEventDate(event: any) {
-  return event?.start_date || event?.start_time || null;
-}
-
-function pickEventEndDate(event: any) {
-  return event?.end_date || event?.end_time || event?.start_date || event?.start_time || null;
-}
-
-function getEventDisplayState(event: any) {
-  const now = new Date();
-
-  const startRaw = pickEventDate(event);
-  const endRaw = pickEventEndDate(event);
-
-  const start = startRaw ? new Date(startRaw) : null;
-  const end = endRaw ? new Date(endRaw) : null;
-
-  if (!start || Number.isNaN(start.getTime())) return "upcoming";
-  if (!end || Number.isNaN(end.getTime())) return start < now ? "ended" : "upcoming";
-
-  if (end < now) return "ended";
-  if (start > now) return "upcoming";
-  return "ongoing";
-}
+import {
+  formatEventDateTimeCompact,
+  getEventDisplayState,
+} from "@/lib/events/core";
 
 function resolveImage(event: any) {
   return (
@@ -53,19 +33,6 @@ function resolveCategory(event: any) {
   return String(event.category).replace(/-/g, " ");
 }
 
-function formatDateTime(event: any) {
-  const value = pickEventDate(event);
-  if (!value) return "Date TBA";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Date TBA";
-
-  return date.toLocaleString("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
-
 function resolveDescription(event: any) {
   return (
     event?.short_description ||
@@ -95,7 +62,7 @@ export default function EventCard({ event }: { event: any }) {
   const price = resolvePrice(event);
   const statusLabel = resolveStatusLabel(event);
   const category = resolveCategory(event);
-  const dateTime = formatDateTime(event);
+  const dateTime = formatEventDateTimeCompact(event?.start_date || event?.start_time);
   const description = resolveDescription(event);
   const isEnded = statusLabel === "Event Closed";
 

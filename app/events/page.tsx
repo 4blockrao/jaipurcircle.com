@@ -1,40 +1,12 @@
 import { createServerSupabaseClient } from "@/lib/supabase";
 import EventCard from "@/components/EventCard";
+import { sortEventsByLifecycle } from "@/lib/events/core";
 
 export const metadata = {
   title: "Events in Jaipur | JaipurCircle",
   description:
     "Explore upcoming events and permanent event archives across Jaipur. JaipurCircle keeps event pages live even after the event ends, building a searchable city memory over time.",
 };
-
-function pickEventDate(event: any) {
-  return event?.start_date || event?.start_time || null;
-}
-
-function sortEvents(items: any[]) {
-  const now = new Date();
-
-  return [...(items || [])].sort((a: any, b: any) => {
-    const aRaw = pickEventDate(a);
-    const bRaw = pickEventDate(b);
-
-    const aDate = aRaw ? new Date(aRaw) : null;
-    const bDate = bRaw ? new Date(bRaw) : null;
-
-    if (!aDate && !bDate) return 0;
-    if (!aDate) return 1;
-    if (!bDate) return -1;
-
-    const aUpcoming = aDate >= now;
-    const bUpcoming = bDate >= now;
-
-    if (aUpcoming && !bUpcoming) return -1;
-    if (!aUpcoming && bUpcoming) return 1;
-
-    if (aUpcoming && bUpcoming) return aDate.getTime() - bDate.getTime();
-    return bDate.getTime() - aDate.getTime();
-  });
-}
 
 export default async function EventsPage() {
   const supabase = createServerSupabaseClient();
@@ -47,7 +19,7 @@ export default async function EventsPage() {
     .eq("index_status", "index")
     .limit(120);
 
-  const sorted = sortEvents(events || []);
+  const sorted = sortEventsByLifecycle(events || []);
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-10">
