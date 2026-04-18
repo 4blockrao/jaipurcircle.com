@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/supabase";
-import EventCard from "@/components/EventCard";
+import EventCard from "@/components/events/cards/EventCard";
 import { sortEventsByLifecycle } from "@/lib/events/core";
 
 export const metadata = {
@@ -14,7 +14,7 @@ export default async function EventsPage() {
   const { data: events } = await supabase
     .from("events")
     .select("*")
-    .eq("status", "published")
+    .in("status", ["published", "upcoming"])
     .eq("editorial_status", "published")
     .eq("index_status", "index")
     .limit(120);
@@ -22,19 +22,22 @@ export default async function EventsPage() {
   const sorted = sortEventsByLifecycle(events || []);
 
   return (
-    <main className="max-w-7xl mx-auto px-4 py-10">
-      <h1 className="text-3xl md:text-4xl font-bold">Events in Jaipur</h1>
-
-      <p className="mt-3 max-w-3xl text-gray-600">
-        Explore upcoming events, recurring experiences, and permanent event archives across Jaipur.
-        JaipurCircle keeps event pages live even after the event ends, so the city builds a searchable
-        event memory over time.
-      </p>
+    <main className="mx-auto max-w-7xl px-4 py-10">
+      <div className="max-w-3xl">
+        <h1 className="text-4xl font-bold tracking-tight text-gray-900">
+          Events in Jaipur
+        </h1>
+        <p className="mt-4 text-base leading-7 text-gray-600">
+          Discover upcoming events, recurring experiences, and permanent event
+          archives across Jaipur. JaipurCircle keeps event pages live even after
+          the event ends, so the city builds a searchable event memory over time.
+        </p>
+      </div>
 
       {sorted.length > 0 ? (
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {sorted.map((event: any) => (
-            <EventCard key={event.id} event={event} />
+            <EventCard key={event.id} event={event} variant="primary" />
           ))}
         </div>
       ) : (
