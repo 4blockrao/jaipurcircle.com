@@ -1,12 +1,16 @@
-import { TOP_LOCALITIES } from '@/lib/localities';
+import { getLocalitiesForSelector } from '@/lib/getLocality';
 
-export default function LocalitySelector({
+export default async function LocalitySelector({
   selectedLocality = 'jaipur',
 }: {
   selectedLocality?: string;
 }) {
+  const localities = await getLocalitiesForSelector();
+  const fallbackLocality = { name: 'Jaipur', slug: 'jaipur' };
+  const options = localities.length > 0 ? localities : [fallbackLocality];
+
   const selected =
-    TOP_LOCALITIES.find((l) => l.slug === selectedLocality) || TOP_LOCALITIES[0];
+    options.find((l: any) => l.slug === selectedLocality) || options[0];
 
   return (
     <details className="relative">
@@ -19,7 +23,7 @@ export default function LocalitySelector({
       </summary>
 
       <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-gray-200 bg-white shadow-xl p-2 z-50">
-        {TOP_LOCALITIES.map((locality) => (
+        {options.map((locality: any) => (
           <a
             key={locality.slug}
             href={`/?locality=${locality.slug}`}

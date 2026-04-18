@@ -32,8 +32,7 @@ export default async function LocalitiesPage() {
               {locality.name}
             </h2>
             <p className="mt-2 text-sm text-gray-600">
-              {locality.meta_description ||
-                locality.seo_blurb ||
+              {locality.description ||
                 `Things to do in ${locality.name}, Jaipur.`}
             </p>
           </a>

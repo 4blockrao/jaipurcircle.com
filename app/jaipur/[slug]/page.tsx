@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import EventCard from '@/components/EventCard';
 import { buildLocalityDiscoveryLinks } from '@/lib/internal-linking';
+import { getLocalityBySlug } from '@/lib/getLocality';
 
 function isUpcomingEvent(event: any) {
   const value = event?.start_time || event?.start_date;
@@ -51,17 +52,12 @@ function buildFaq(localityName: string, upcomingCount: number, venueCount: numbe
 }
 
 export async function generateMetadata(props: any) {
-  const supabase = createServerSupabaseClient();
   const params = await props.params;
   const slug = params?.slug;
 
   if (!slug) return {};
 
-  const { data: locality } = await supabase
-    .from('localities')
-    .select('*')
-    .eq('slug', slug)
-    .maybeSingle();
+  const locality = await getLocalityBySlug(slug);
 
   const localityName = locality?.name || slug;
 
@@ -78,25 +74,16 @@ export default async function LocalityPage(props: any) {
 
   if (!slug) return notFound();
 
-  const { data: locality } = await supabase
-    .from('localities')
-    .select('*')
-    .eq('slug', slug)
-    .maybeSingle();
+  const locality = await getLocalityBySlug(slug);
 
   if (!locality) return notFound();
 
-  let eventsQuery = supabase
+  const eventsQuery = supabase
     .from('events')
     .select('*')
-    .eq('editorial_status', 'published')
+    .eq('locality_slug', slug)
+    .or('editorial_status.eq.published,status.eq.upcoming,status.eq.ongoing')
     .order('start_time', { ascending: true });
-
-  if (locality?.id) {
-    eventsQuery = eventsQuery.eq('locality_id', locality.id);
-  } else {
-    eventsQuery = eventsQuery.eq('locality', slug);
-  }
 
   const { data: eventsRaw } = await eventsQuery;
   const events = dedupeById(eventsRaw || []);
@@ -304,6 +291,14 @@ export default async function LocalityPage(props: any) {
         <h2 className="text-2xl font-semibold text-gray-900 mb-5">
           Upcoming events in {locality.name}
         </h2>
+
+        {upcomingEvents.length > 0 ? (
+          <ul className="mb-5 list-disc pl-5 text-sm text-gray-700">
+            {upcomingEvents.slice(0, 10).map((event: any) => (
+              <li key={`title-${event.id}`}>{event.title}</li>
+            ))}
+          </ul>
+        ) : null}
 
         {upcomingEvents.length === 0 ? (
           <div className="rounded-3xl border border-gray-200 bg-white p-6 md:p-8">

@@ -91,7 +91,7 @@ export default async function HybridEventsPage({
     if (resolvedLocality?.id) {
       query = query.eq('locality_id', resolvedLocality.id);
     } else if (resolvedLocality?.slug) {
-      query = query.eq('locality', resolvedLocality.slug);
+      query = query.eq('locality_slug', resolvedLocality.slug);
     }
 
     const { data } = await query;

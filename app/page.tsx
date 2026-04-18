@@ -11,17 +11,6 @@ const categoryItems = [
   { name: 'Art & Culture', slug: 'art-culture', emoji: '🎨' },
 ];
 
-const LOCALITY_LABELS: Record<string, string> = {
-  jaipur: 'Jaipur',
-  'c-scheme': 'C-Scheme',
-  'malviya-nagar': 'Malviya Nagar',
-  'vaishali-nagar': 'Vaishali Nagar',
-  mansarovar: 'Mansarovar',
-  jagatpura: 'Jagatpura',
-  sitapura: 'Sitapura',
-  'jhalana-doongri': 'Jhalana Doongri',
-};
-
 export const metadata = {
   title: 'Jaipur Events, Shows, Workshops & Experiences | JaipurCircle',
   description:
@@ -70,8 +59,7 @@ export default async function HomePage({
   const supabase = createServerSupabaseClient();
   const sp = (await searchParams) || {};
   const selectedLocality = sp.locality || 'jaipur';
-  const selectedLocalityLabel =
-    LOCALITY_LABELS[selectedLocality] || 'Jaipur';
+  let selectedLocalityLabel = 'Jaipur';
 
   let baseEventsQuery = supabase
     .from('events')
@@ -82,14 +70,18 @@ export default async function HomePage({
   if (selectedLocality !== 'jaipur') {
     const { data: localityRow } = await supabase
       .from('localities')
-      .select('id')
+      .select('id,name')
       .eq('slug', selectedLocality)
       .maybeSingle();
+
+    if (localityRow?.name) {
+      selectedLocalityLabel = localityRow.name;
+    }
 
     if (localityRow?.id) {
       baseEventsQuery = baseEventsQuery.eq('locality_id', localityRow.id);
     } else {
-      baseEventsQuery = baseEventsQuery.eq('locality', selectedLocality);
+      baseEventsQuery = baseEventsQuery.eq('locality_slug', selectedLocality);
     }
   }
 
@@ -112,9 +104,8 @@ export default async function HomePage({
 
   const { data: topLocalities } = await supabase
     .from('localities')
-    .select('*')
-    .eq('is_indexable', true)
-    .order('quality_score', { ascending: false })
+    .select('id,name,slug')
+    .order('name', { ascending: true })
     .limit(8);
 
   const discoveryStats = [
