@@ -232,3 +232,71 @@ export async function getVenuesForLocality(
 
   return data || [];
 }
+
+export async function getUpcomingEventsForVenue(
+  supabase: any,
+  {
+    venueId,
+    venueName,
+    limit = 6,
+  }: {
+    venueId?: string | null;
+    venueName?: string | null;
+    limit?: number;
+  }
+) {
+  let query = applyPublicEventFilters(
+    supabase.from("events").select("*")
+  );
+
+  if (venueId && venueName) {
+    query = query.or(`venue_id.eq.${venueId},venue_name.eq.${venueName}`);
+  } else if (venueId) {
+    query = query.eq("venue_id", venueId);
+  } else if (venueName) {
+    query = query.eq("venue_name", venueName);
+  } else {
+    return [];
+  }
+
+  const { data } = await query
+    .gte("start_date", new Date().toISOString())
+    .order("start_date", { ascending: true })
+    .limit(limit);
+
+  return dedupeById(data || []);
+}
+
+export async function getPastEventsForVenue(
+  supabase: any,
+  {
+    venueId,
+    venueName,
+    limit = 6,
+  }: {
+    venueId?: string | null;
+    venueName?: string | null;
+    limit?: number;
+  }
+) {
+  let query = applyPublicEventFilters(
+    supabase.from("events").select("*")
+  );
+
+  if (venueId && venueName) {
+    query = query.or(`venue_id.eq.${venueId},venue_name.eq.${venueName}`);
+  } else if (venueId) {
+    query = query.eq("venue_id", venueId);
+  } else if (venueName) {
+    query = query.eq("venue_name", venueName);
+  } else {
+    return [];
+  }
+
+  const { data } = await query
+    .lt("start_date", new Date().toISOString())
+    .order("start_date", { ascending: false })
+    .limit(limit);
+
+  return dedupeById(data || []);
+}
