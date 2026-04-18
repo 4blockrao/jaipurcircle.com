@@ -300,3 +300,153 @@ export async function getPastEventsForVenue(
 
   return dedupeById(data || []);
 }
+
+export async function getUpcomingEventsForArtist(
+  supabase: any,
+  {
+    artistId,
+    limit = 6,
+  }: {
+    artistId?: string | null;
+    limit?: number;
+  }
+) {
+  if (!artistId) return [];
+
+  const { data: links } = await supabase
+    .from("event_artists")
+    .select("event_id")
+    .eq("artist_id", artistId);
+
+  const eventIds = Array.from(
+    new Set((links || []).map((row: any) => row.event_id).filter(Boolean))
+  );
+
+  if (eventIds.length === 0) return [];
+
+  const { data } = await applyPublicEventFilters(
+    supabase.from("events").select("*").in("id", eventIds)
+  )
+    .gte("start_date", new Date().toISOString())
+    .order("start_date", { ascending: true })
+    .limit(limit);
+
+  return dedupeById(data || []);
+}
+
+export async function getPastEventsForArtist(
+  supabase: any,
+  {
+    artistId,
+    limit = 6,
+  }: {
+    artistId?: string | null;
+    limit?: number;
+  }
+) {
+  if (!artistId) return [];
+
+  const { data: links } = await supabase
+    .from("event_artists")
+    .select("event_id")
+    .eq("artist_id", artistId);
+
+  const eventIds = Array.from(
+    new Set((links || []).map((row: any) => row.event_id).filter(Boolean))
+  );
+
+  if (eventIds.length === 0) return [];
+
+  const { data } = await applyPublicEventFilters(
+    supabase.from("events").select("*").in("id", eventIds)
+  )
+    .lt("start_date", new Date().toISOString())
+    .order("start_date", { ascending: false })
+    .limit(limit);
+
+  return dedupeById(data || []);
+}
+
+export async function getVenueClusterForArtist(
+  supabase: any,
+  {
+    artistId,
+    limit = 6,
+  }: {
+    artistId?: string | null;
+    limit?: number;
+  }
+) {
+  if (!artistId) return [];
+
+  const { data: links } = await supabase
+    .from("event_artists")
+    .select("event_id")
+    .eq("artist_id", artistId);
+
+  const eventIds = Array.from(
+    new Set((links || []).map((row: any) => row.event_id).filter(Boolean))
+  );
+
+  if (eventIds.length === 0) return [];
+
+  const { data: events } = await applyPublicEventFilters(
+    supabase.from("events").select("venue_id, venue_name").in("id", eventIds)
+  );
+
+  const venueIds = Array.from(
+    new Set((events || []).map((e: any) => e.venue_id).filter(Boolean))
+  );
+
+  if (venueIds.length === 0) return [];
+
+  const { data: venues } = await supabase
+    .from("venues")
+    .select("*")
+    .in("id", venueIds)
+    .limit(limit);
+
+  return venues || [];
+}
+
+export async function getLocalityClusterForArtist(
+  supabase: any,
+  {
+    artistId,
+    limit = 6,
+  }: {
+    artistId?: string | null;
+    limit?: number;
+  }
+) {
+  if (!artistId) return [];
+
+  const { data: links } = await supabase
+    .from("event_artists")
+    .select("event_id")
+    .eq("artist_id", artistId);
+
+  const eventIds = Array.from(
+    new Set((links || []).map((row: any) => row.event_id).filter(Boolean))
+  );
+
+  if (eventIds.length === 0) return [];
+
+  const { data: events } = await applyPublicEventFilters(
+    supabase.from("events").select("locality_id, locality").in("id", eventIds)
+  );
+
+  const localityIds = Array.from(
+    new Set((events || []).map((e: any) => e.locality_id).filter(Boolean))
+  );
+
+  if (localityIds.length === 0) return [];
+
+  const { data: localities } = await supabase
+    .from("localities")
+    .select("*")
+    .in("id", localityIds)
+    .limit(limit);
+
+  return localities || [];
+}

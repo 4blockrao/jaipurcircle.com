@@ -1,434 +1,187 @@
-import { notFound } from 'next/navigation';
-import { createServerSupabaseClient } from '@/lib/supabase';
-import EventCard from '@/components/EventCard';
+import { notFound } from "next/navigation";
+import { createServerSupabaseClient } from "@/lib/supabase";
+import EventSectionGrid from "@/components/events/EventSectionGrid";
 import {
-  buildArtistBreadcrumbs,
-  buildArtistDiscoveryLinks,
-} from '@/lib/internal-linking';
+  getUpcomingEventsForArtist,
+  getPastEventsForArtist,
+  getVenueClusterForArtist,
+  getLocalityClusterForArtist,
+} from "@/lib/events/queries";
 
-function resolveArtistName(artist: any, fallbackSlug?: string) {
-  return (
-    artist?.name ||
-    artist?.artist_name ||
-    (fallbackSlug
-      ? fallbackSlug
-          .split('-')
-          .map((x: string) => x.charAt(0).toUpperCase() + x.slice(1))
-          .join(' ')
-      : 'Artist')
-  );
-}
+export const dynamic = "force-dynamic";
 
-function resolveArtistImage(artist: any) {
-  return (
-    artist?.image_url ||
-    artist?.cover_image_url ||
-    artist?.cover_image ||
-    'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?q=80&w=1200'
-  );
-}
-
-function resolveArtistBio(artist: any, artistName: string) {
-  return (
-    artist?.bio ||
-    artist?.description ||
-    artist?.short_description ||
-    `${artistName} is featured on JaipurCircle as part of Jaipur’s live event and performance ecosystem. Explore upcoming and past events, discover venues, and follow related event activity in Jaipur.`
-  );
-}
-
-function isUpcomingEvent(event: any) {
-  const value = event?.start_time || event?.start_date;
-  if (!value) return true;
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return true;
-
-  return date >= new Date();
-}
-
-function dedupeById(items: any[]) {
-  const seen = new Set<string>();
-  return (items || []).filter((item: any) => {
-    if (!item?.id) return false;
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
-}
-
-function buildFaq(artistName: string, upcomingCount: number, pastCount: number) {
-  return [
-    {
-      q: `Who is ${artistName}?`,
-      a: `${artistName} is listed on JaipurCircle as an artist or performer connected to Jaipur event activity.`,
-    },
-    {
-      q: `Are there any upcoming events featuring ${artistName}?`,
-      a:
-        upcomingCount > 0
-          ? `Yes, there are ${upcomingCount} upcoming event${upcomingCount === 1 ? '' : 's'} featuring ${artistName}.`
-          : `There are currently no upcoming events featuring ${artistName}.`,
-    },
-    {
-      q: `Can I explore past events by ${artistName}?`,
-      a:
-        pastCount > 0
-          ? `Yes, JaipurCircle also keeps past event pages live as archive references for ${artistName}.`
-          : `There are no past archived events listed for ${artistName} right now.`,
-    },
-    {
-      q: `Where can I discover more events in Jaipur?`,
-      a: `You can browse all Jaipur events, category pages, locality pages, and related event listings on JaipurCircle.`,
-    },
-  ];
-}
-
-export async function generateMetadata(props: any) {
+export async function generateMetadata(
+  props: { params: Promise<{ slug: string }> }
+) {
+  const { slug } = await props.params;
   const supabase = createServerSupabaseClient();
-  const params = await props.params;
-  const slug = params?.slug;
-
-  if (!slug) return {};
 
   const { data: artist } = await supabase
-    .from('artists')
-    .select('*')
-    .eq('slug', slug)
-    .maybeSingle();
+    .from("artists")
+    .select("name, meta_title, meta_description")
+    .eq("slug", slug)
+    .single();
 
-  const artistName = resolveArtistName(artist, slug);
-  const artistBio = resolveArtistBio(artist, artistName);
-
-  return {
-    title: `${artistName} | Artist Profile & Events in Jaipur`,
-    description: artistBio,
-  };
-}
-
-export default async function ArtistPage(props: any) {
-  const supabase = createServerSupabaseClient();
-  const params = await props.params;
-  const slug = params?.slug;
-
-  if (!slug) return notFound();
-
-  const { data: artist } = await supabase
-    .from('artists')
-    .select('*')
-    .eq('slug', slug)
-    .maybeSingle();
-
-  const artistName = resolveArtistName(artist, slug);
-  const artistImage = resolveArtistImage(artist);
-  const artistBio = resolveArtistBio(artist, artistName);
-
-  const { data: artistLinks } = await supabase
-    .from('event_artists_view')
-    .select('*')
-    .eq('artist_slug', slug);
-
-  const linkedEventsRaw = artistLinks || [];
-  const linkedEventIds = [...new Set(linkedEventsRaw.map((x: any) => x.event_id).filter(Boolean))];
-
-  let events: any[] = [];
-
-  if (linkedEventIds.length > 0) {
-    const { data: fetchedEvents } = await supabase
-      .from('events')
-      .select('*')
-      .eq('editorial_status', 'published')
-      .in('id', linkedEventIds)
-      .order('start_time', { ascending: true });
-
-    events = dedupeById(fetchedEvents || []);
+  if (!artist) {
+    return {
+      title: "Artist not found | JaipurCircle",
+    };
   }
 
-  if (!artist && events.length === 0) return notFound();
-
-  const upcomingEvents = events.filter(isUpcomingEvent);
-  const pastEvents = events.filter((event: any) => !isUpcomingEvent(event));
-
-  const uniqueLocalities = [...new Set(events.map((e: any) => e?.locality).filter(Boolean))]
-    .slice(0, 8)
-    .map((name: string) => ({ slug: name, name }));
-
-  const uniqueCategories = [...new Set(events.map((e: any) => e?.category).filter(Boolean))]
-    .slice(0, 8)
-    .map((name: string) => ({ slug: name, name }));
-
-  const uniqueVenues = [...new Set(events.map((e: any) => e?.venue_name).filter(Boolean))]
-    .slice(0, 6)
-    .map((name: string) => ({
-      slug: String(name).toLowerCase().replace(/\s+/g, '-'),
-      name,
-    }));
-
-  const discoveryLinks = buildArtistDiscoveryLinks({
-    categories: uniqueCategories,
-    localities: uniqueLocalities,
-    venues: uniqueVenues,
-  });
-
-  const breadcrumbs = buildArtistBreadcrumbs(artistName);
-
-  const faqItems = buildFaq(artistName, upcomingEvents.length, pastEvents.length);
-
-  const faqSchema = {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: faqItems.map((item) => ({
-      '@type': 'Question',
-      name: item.q,
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: item.a,
-      },
-    })),
+  return {
+    title: artist.meta_title || `${artist.name} in Jaipur | JaipurCircle`,
+    description:
+      artist.meta_description ||
+      `Explore upcoming Jaipur events, past appearances, venues, and localities connected to ${artist.name} on JaipurCircle.`,
+    alternates: {
+      canonical: `https://www.jaipurcircle.com/artists/${slug}`,
+    },
   };
+}
 
-  const personSchema = {
-    '@context': 'https://schema.org',
-    '@type': 'Person',
-    name: artistName,
-    description: artistBio,
-    image: artistImage,
-    url: `https://www.jaipurcircle.com/artists/${slug}`,
-  };
+export default async function ArtistPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  const supabase = createServerSupabaseClient();
+
+  const { data: artist, error } = await supabase
+    .from("artists")
+    .select("*")
+    .eq("slug", slug)
+    .single();
+
+  if (!artist || error) return notFound();
+
+  const [upcomingEvents, pastEvents, venues, localities] = await Promise.all([
+    getUpcomingEventsForArtist(supabase, {
+      artistId: artist.id,
+      limit: 6,
+    }),
+    getPastEventsForArtist(supabase, {
+      artistId: artist.id,
+      limit: 6,
+    }),
+    getVenueClusterForArtist(supabase, {
+      artistId: artist.id,
+      limit: 6,
+    }),
+    getLocalityClusterForArtist(supabase, {
+      artistId: artist.id,
+      limit: 6,
+    }),
+  ]);
 
   return (
-    <main className="max-w-7xl mx-auto px-4 md:px-6 pb-28">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(personSchema) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
-      />
-
-      <nav className="mt-6 text-sm text-gray-500 flex flex-wrap gap-2">
-        {breadcrumbs.map((b, i) => (
-          <span key={`${b.label}-${i}`}>
-            {b.href !== '#' ? (
-              <a href={b.href} className="hover:text-gray-800 transition">{b.label}</a>
-            ) : (
-              <span className="text-gray-800">{b.label}</span>
-            )}
-            {i < breadcrumbs.length - 1 && ' › '}
-          </span>
-        ))}
+    <main className="max-w-7xl mx-auto px-4 py-10">
+      <nav className="text-sm text-gray-500">
+        <a href="/" className="hover:text-black">Home</a>
+        <span> &gt; </span>
+        <span className="text-black">Artists</span>
+        <span> &gt; </span>
+        <span className="text-black">{artist.name}</span>
       </nav>
 
-      <section className="relative h-[320px] md:h-[420px] rounded-3xl overflow-hidden mt-4">
-        <img src={artistImage} alt={artistName} className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/10" />
+      <header className="mt-6">
+        <h1 className="text-3xl md:text-4xl font-bold">
+          {artist.h1_override || `${artist.name} in Jaipur`}
+        </h1>
 
-        <div className="absolute top-5 left-5 flex flex-wrap gap-2">
-          <span className="px-3 py-1.5 rounded-full bg-white/15 backdrop-blur text-white text-xs md:text-sm font-medium">
-            Artist Profile
+        <p className="mt-4 max-w-3xl text-gray-700 leading-7">
+          {artist.description ||
+            artist.bio ||
+            artist.seo_blurb ||
+            `${artist.name} has an event footprint in Jaipur. Explore upcoming appearances, past event history, venues, and localities connected to this artist on JaipurCircle.`}
+        </p>
+
+        <div className="mt-5 flex flex-wrap gap-3 text-sm">
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Artist: {artist.name}
           </span>
-          {upcomingEvents.length > 0 ? (
-            <span className="px-3 py-1.5 rounded-full bg-emerald-500 text-white text-xs md:text-sm font-medium">
-              {upcomingEvents.length} Upcoming Event{upcomingEvents.length === 1 ? '' : 's'}
-            </span>
-          ) : null}
         </div>
+      </header>
 
-        <div className="absolute bottom-0 left-0 right-0 p-5 md:p-8 text-white">
-          <div className="max-w-4xl">
-            <h1 className="text-3xl md:text-5xl font-bold leading-tight tracking-tight">
-              {artistName}
-            </h1>
-            <p className="mt-3 text-sm md:text-base text-white/85 max-w-3xl leading-relaxed">
-              {artistBio}
-            </p>
+      <EventSectionGrid
+        title={`Upcoming Jaipur events by ${artist.name}`}
+        description={`Discover upcoming events in Jaipur connected to ${artist.name}.`}
+        events={upcomingEvents}
+        emptyText={`No upcoming Jaipur events are currently linked to ${artist.name}.`}
+      />
 
-            <div className="mt-6 flex flex-wrap gap-3">
+      <EventSectionGrid
+        title={`Past Jaipur appearances by ${artist.name}`}
+        description={`JaipurCircle keeps event pages live after they end, helping build a permanent Jaipur appearance history for ${artist.name}.`}
+        events={pastEvents}
+        emptyText={`No past Jaipur event archive is currently available for ${artist.name}.`}
+      />
+
+      <section className="mt-12">
+        <h2 className="text-xl font-semibold">Venues connected to {artist.name}</h2>
+        <p className="mt-2 text-sm text-gray-600">
+          Explore venues where this artist has appeared in Jaipur.
+        </p>
+
+        {venues.length > 0 ? (
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {venues.map((venue: any) => (
               <a
-                href="#upcoming-events"
-                className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm md:text-base font-semibold text-gray-900 hover:bg-gray-100 transition"
+                key={venue.id}
+                href={`/venues/${venue.slug}`}
+                className="block rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
               >
-                View Upcoming Events
-              </a>
-              <a
-                href="/events"
-                className="inline-flex items-center justify-center rounded-2xl border border-white/30 bg-white/10 px-6 py-3 text-sm md:text-base font-medium text-white backdrop-blur hover:bg-white/15 transition"
-              >
-                Explore Jaipur Events
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="mt-6 flex flex-wrap gap-3 text-sm">
-        {discoveryLinks.map((link) => (
-          <a
-            key={link.href}
-            href={link.href}
-            className="px-4 py-2 bg-gray-100 rounded-full text-gray-700 hover:bg-gray-200 transition"
-          >
-            {link.label}
-          </a>
-        ))}
-      </section>
-
-      <section className="mt-8 grid grid-cols-1 lg:grid-cols-[1.55fr_0.9fr] gap-8">
-        <div className="space-y-8">
-          <section className="bg-white rounded-3xl border border-gray-200 p-6 md:p-8">
-            <h2 className="text-xl md:text-2xl font-semibold text-gray-900 mb-4">
-              About {artistName}
-            </h2>
-            <p className="text-gray-600 leading-relaxed text-sm md:text-base">
-              {artistBio}
-            </p>
-
-            <div className="mt-6 grid sm:grid-cols-3 gap-4">
-              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
-                <div className="text-xs uppercase tracking-wide text-gray-500">Upcoming Events</div>
-                <div className="mt-1 text-lg font-semibold text-gray-900">{upcomingEvents.length}</div>
-              </div>
-              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
-                <div className="text-xs uppercase tracking-wide text-gray-500">Past Events</div>
-                <div className="mt-1 text-lg font-semibold text-gray-900">{pastEvents.length}</div>
-              </div>
-              <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
-                <div className="text-xs uppercase tracking-wide text-gray-500">City</div>
-                <div className="mt-1 text-lg font-semibold text-gray-900">Jaipur</div>
-              </div>
-            </div>
-          </section>
-
-          {uniqueCategories.length > 0 ? (
-            <section className="bg-white rounded-3xl border border-gray-200 p-6 md:p-8">
-              <h2 className="text-xl md:text-2xl font-semibold text-gray-900 mb-4">
-                Categories
-              </h2>
-              <div className="flex flex-wrap gap-2">
-                {uniqueCategories.map((category: any) => (
-                  <a
-                    key={category.slug}
-                    href={`/events?category=${encodeURIComponent(category.slug)}`}
-                    className="px-3 py-1.5 rounded-full bg-gray-100 text-sm text-gray-700 hover:bg-gray-200 transition"
-                  >
-                    {String(category.name).replace(/-/g, ' ')}
-                  </a>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {uniqueLocalities.length > 0 ? (
-            <section className="bg-white rounded-3xl border border-gray-200 p-6 md:p-8">
-              <h2 className="text-xl md:text-2xl font-semibold text-gray-900 mb-4">
-                Event localities
-              </h2>
-              <div className="flex flex-wrap gap-2">
-                {uniqueLocalities.map((locality: any) => (
-                  <a
-                    key={locality.slug}
-                    href={`/jaipur/${locality.slug}`}
-                    className="px-3 py-1.5 rounded-full bg-gray-100 text-sm text-gray-700 hover:bg-gray-200 transition"
-                  >
-                    {String(locality.name).replace(/-/g, ' ')}
-                  </a>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          <section className="bg-white rounded-3xl border border-gray-200 p-6 md:p-8">
-            <h2 className="text-xl md:text-2xl font-semibold text-gray-900 mb-4">
-              Artist FAQs
-            </h2>
-            <div className="space-y-4">
-              {faqItems.map((item, index) => (
-                <div key={index} className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
-                  <h3 className="text-sm md:text-base font-semibold text-gray-900">{item.q}</h3>
-                  <p className="mt-2 text-sm text-gray-600 leading-relaxed">{item.a}</p>
+                <h3 className="text-lg font-semibold text-gray-900">{venue.name}</h3>
+                <p className="mt-2 text-sm text-gray-600 line-clamp-3">
+                  {venue.description ||
+                    venue.seo_blurb ||
+                    `${venue.name} is a venue in Jaipur connected to ${artist.name}.`}
+                </p>
+                <div className="mt-4 text-sm font-medium text-blue-600">
+                  View venue page →
                 </div>
-              ))}
-            </div>
-          </section>
-        </div>
-
-        <aside className="lg:sticky lg:top-24 h-fit">
-          <div className="bg-white rounded-3xl border border-gray-200 p-5 md:p-6 shadow-sm">
-            <h2 className="text-lg md:text-xl font-semibold text-gray-900 mb-4">
-              Artist overview
-            </h2>
-
-            <div className="space-y-4 text-sm">
-              <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Name</div>
-                <div className="mt-1 text-gray-800">{artistName}</div>
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Upcoming Events</div>
-                <div className="mt-1 text-gray-800">{upcomingEvents.length}</div>
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Past Events</div>
-                <div className="mt-1 text-gray-800">{pastEvents.length}</div>
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Coverage</div>
-                <div className="mt-1 text-gray-800">JaipurCircle artist graph</div>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-col gap-3">
-              <a
-                href="#upcoming-events"
-                className="w-full text-center bg-blue-600 text-white py-3 rounded-2xl font-semibold hover:bg-blue-700 transition"
-              >
-                View Upcoming Events
               </a>
-              <a
-                href="/events"
-                className="w-full text-center border border-gray-200 text-gray-800 py-3 rounded-2xl font-medium hover:bg-gray-50 transition"
-              >
-                Browse Jaipur Events
-              </a>
-            </div>
-          </div>
-        </aside>
-      </section>
-
-      <section id="upcoming-events" className="mt-14">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-5">
-          Upcoming events featuring {artistName}
-        </h2>
-
-        {upcomingEvents.length === 0 ? (
-          <div className="rounded-3xl border border-gray-200 bg-white p-6 md:p-8">
-            <h3 className="text-lg font-semibold text-gray-900">No upcoming events listed yet</h3>
-            <p className="mt-2 text-gray-600 leading-relaxed">
-              This artist profile remains live on JaipurCircle. Explore all Jaipur events to discover related performances and upcoming local experiences.
-            </p>
+            ))}
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {upcomingEvents.map((event: any) => (
-              <EventCard key={event.id} event={event} />
-            ))}
+          <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
+            No venue cluster is available for this artist yet.
           </div>
         )}
       </section>
 
-      {pastEvents.length > 0 ? (
-        <section className="mt-14">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-5">
-            Past events archive
-          </h2>
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {pastEvents.slice(0, 9).map((event: any) => (
-              <EventCard key={event.id} event={event} />
+      <section className="mt-12">
+        <h2 className="text-xl font-semibold">Localities connected to {artist.name}</h2>
+        <p className="mt-2 text-sm text-gray-600">
+          Explore Jaipur localities where this artist has had event activity.
+        </p>
+
+        {localities.length > 0 ? (
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {localities.map((locality: any) => (
+              <a
+                key={locality.id}
+                href={`/jaipur/${locality.slug}`}
+                className="block rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+              >
+                <h3 className="text-lg font-semibold text-gray-900">{locality.name}</h3>
+                <p className="mt-2 text-sm text-gray-600 line-clamp-3">
+                  {locality.description ||
+                    locality.seo_blurb ||
+                    `${locality.name} is a Jaipur locality connected to ${artist.name}'s event history.`}
+                </p>
+                <div className="mt-4 text-sm font-medium text-blue-600">
+                  Explore locality →
+                </div>
+              </a>
             ))}
           </div>
-        </section>
-      ) : null}
+        ) : (
+          <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
+            No locality cluster is available for this artist yet.
+          </div>
+        )}
+      </section>
     </main>
   );
 }
