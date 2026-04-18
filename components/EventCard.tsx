@@ -1,3 +1,5 @@
+import { getEventDisplayState } from "@/lib/events/getEventDisplayState";
+
 function resolveImage(event: any) {
   return (
     event?.cover_image_url ||
@@ -20,19 +22,6 @@ function resolvePrice(event: any) {
   if (event?.price_min) return `₹${event.price_min}`;
   if (event?.ticket_price) return `₹${event.ticket_price}`;
   return "Price TBA";
-}
-
-function resolveStatus(event: any) {
-  if (event?.status) return String(event.status).toLowerCase();
-
-  const startValue = event?.start_time || event?.start_date;
-  if (!startValue) return "upcoming";
-
-  const now = new Date();
-  const start = new Date(startValue);
-
-  if (Number.isNaN(start.getTime())) return "upcoming";
-  return start < now ? "past" : "upcoming";
 }
 
 function resolveCategory(event: any) {
@@ -62,17 +51,41 @@ function resolveDescription(event: any) {
   );
 }
 
+function resolveStatusLabel(event: any) {
+  const state = getEventDisplayState({
+    start_date: event?.start_date || null,
+    end_date: event?.end_date || null,
+    status: event?.status || null,
+  });
+
+  switch (state) {
+    case "ended":
+      return "Event Closed";
+    case "today":
+      return "Happening Today";
+    case "live":
+      return "Live Now";
+    case "cancelled":
+      return "Cancelled";
+    case "postponed":
+      return "Postponed";
+    case "rescheduled":
+      return "Rescheduled";
+    default:
+      return "Upcoming";
+  }
+}
+
 export default function EventCard({ event }: { event: any }) {
   const image = resolveImage(event);
   const venue = resolveVenue(event);
   const locality = resolveLocality(event);
   const price = resolvePrice(event);
-  const status = resolveStatus(event);
+  const statusLabel = resolveStatusLabel(event);
   const category = resolveCategory(event);
   const dateTime = formatDateTime(event);
   const description = resolveDescription(event);
-
-  const isPast = status === "past";
+  const isEnded = statusLabel === "Event Closed";
 
   return (
     <a
@@ -94,13 +107,15 @@ export default function EventCard({ event }: { event: any }) {
           </span>
 
           <span
-            className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-              isPast
-                ? "bg-amber-500 text-white"
-                : "bg-emerald-500 text-white"
+            className={`rounded-full px-3 py-1.5 text-xs font-medium text-white ${
+              isEnded
+                ? "bg-amber-500"
+                : statusLabel === "Happening Today" || statusLabel === "Live Now"
+                ? "bg-emerald-500"
+                : "bg-blue-600"
             }`}
           >
-            {isPast ? "Past Event" : "Upcoming"}
+            {statusLabel}
           </span>
         </div>
 
@@ -136,7 +151,7 @@ export default function EventCard({ event }: { event: any }) {
 
         <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
           <span className="text-sm font-medium text-gray-700">
-            View details
+            {isEnded ? "View archive" : "View details"}
           </span>
           <span className="text-lg font-semibold text-blue-600 transition group-hover:translate-x-1">
             →
