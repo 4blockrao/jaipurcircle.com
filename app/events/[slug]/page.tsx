@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import EventSectionGrid from "@/components/events/EventSectionGrid";
+import EventFreshnessBadge from "@/components/events/EventFreshnessBadge";
+import EventSchema from "./EventSchema";
 import {
   formatEventDateTime,
   getEventDisplayState,
@@ -24,21 +26,30 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
 
   const state = getEventDisplayState(event);
 
-  const [{ data: artistRows }, { data: venue }, { data: locality }] = await Promise.all([
-    supabase
-      .from("event_artists")
-      .select("artist_id, artist:artists(id, name, slug)")
-      .eq("event_id", event.id),
-    event.venue_id
-      ? supabase.from("venues").select("*").eq("id", event.venue_id).maybeSingle()
-      : Promise.resolve({ data: null }),
-    event.locality_id
-      ? supabase.from("localities").select("*").eq("id", event.locality_id).maybeSingle()
-      : Promise.resolve({ data: null }),
-  ]);
+  const [{ data: artistRows }, { data: venue }, { data: locality }, { data: categoryRows }] =
+    await Promise.all([
+      supabase
+        .from("event_artists")
+        .select("artist_id, artist:artists(id, name, slug)")
+        .eq("event_id", event.id),
+      event.venue_id
+        ? supabase.from("venues").select("*").eq("id", event.venue_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+      event.locality_id
+        ? supabase.from("localities").select("*").eq("id", event.locality_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+      supabase
+        .from("event_categories")
+        .select("category:categories(id, name, slug)")
+        .eq("event_id", event.id),
+    ]);
 
   const artists = (artistRows || [])
     .map((row: any) => row.artist)
+    .filter(Boolean);
+
+  const categories = (categoryRows || [])
+    .map((row: any) => row.category)
     .filter(Boolean);
 
   let similarEvents: any[] = [];
@@ -80,7 +91,22 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-8">
+      <EventSchema
+        event={event}
+        venue={venue}
+        locality={locality}
+        categories={categories}
+        artists={artists}
+      />
+
       <h1 className="text-3xl font-bold mb-4">{event.title}</h1>
+
+      <div className="mb-4">
+        <EventFreshnessBadge
+          lastVerifiedAt={event.last_verified_at}
+          updatedAt={event.updated_at}
+        />
+      </div>
 
       {state === "ended" && (
         <div className="mb-4 text-red-600 font-semibold">
