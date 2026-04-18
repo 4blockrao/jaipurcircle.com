@@ -129,7 +129,9 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
         </section>
       ) : null}
 
-      <EventRecommendations sections={recommendationSections} />
+      <div className="mt-10">
+        <EventRecommendations sections={recommendationSections} />
+      </div>
     </main>
   );
 }
