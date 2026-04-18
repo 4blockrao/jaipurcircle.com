@@ -1,102 +1,79 @@
+import type { MetadataRoute } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { BASE_URL } from '@/lib/config';
 
-export default async function sitemap() {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const supabase = createServerSupabaseClient();
+  const base = 'https://jaipurcircle.com';
 
-  const staticPages = [
-    { url: `${BASE_URL}/`, lastModified: new Date() },
-    { url: `${BASE_URL}/events`, lastModified: new Date() },
-    { url: `${BASE_URL}/categories`, lastModified: new Date() },
-    { url: `${BASE_URL}/merchants`, lastModified: new Date() },
-    { url: `${BASE_URL}/deals`, lastModified: new Date() },
-  ];
+  const [eventsRes, localitiesRes, dealsRes] = await Promise.all([
+    supabase
+      .from('events')
+      .select('slug, updated_at')
+      .eq('editorial_status', 'published')
+      .limit(5000),
 
-  const { data: events } = await supabase
-    .from('events')
-    .select('slug, updated_at')
-    .eq('is_indexable', true)
-    .limit(5000);
+    supabase
+      .from('localities')
+      .select('slug, updated_at')
+      .eq('should_index', true)
+      .limit(5000),
 
-  const { data: localities } = await supabase
-    .from('localities')
-    .select('slug, updated_at')
-    .eq('should_index', true)
-    .limit(5000);
+    supabase
+      .from('deals')
+      .select('slug, updated_at')
+      .eq('editorial_status', 'published')
+      .eq('is_indexable', true)
+      .limit(5000),
+  ]);
 
-  const { data: venues } = await supabase
-    .from('venues')
-    .select('slug, updated_at')
-    .eq('is_indexable', true)
-    .limit(5000);
+  const events = (eventsRes.data || [])
+    .filter((row: any) => row?.slug)
+    .map((row: any) => ({
+      url: `${base}/events/${row.slug}`,
+      lastModified: row.updated_at ? new Date(row.updated_at) : new Date(),
+      changeFrequency: 'weekly' as const,
+      priority: 0.8,
+    }));
 
-  const { data: artists } = await supabase
-    .from('artists')
-    .select('slug, updated_at')
-    .eq('is_indexable', true)
-    .limit(5000);
+  const localities = (localitiesRes.data || [])
+    .filter((row: any) => row?.slug)
+    .map((row: any) => ({
+      url: `${base}/jaipur/${row.slug}`,
+      lastModified: row.updated_at ? new Date(row.updated_at) : new Date(),
+      changeFrequency: 'weekly' as const,
+      priority: 0.7,
+    }));
 
-  const { data: merchants } = await supabase
-    .from('merchants')
-    .select('slug, updated_at')
-    .eq('is_indexable', true)
-    .limit(5000);
-
-  const { data: deals } = await supabase
-    .from('deals')
-    .select('slug, updated_at')
-    .eq('is_indexable', true)
-    .limit(5000);
-
-  const { data: categories } = await supabase
-    .from('categories')
-    .select('slug, updated_at')
-    .eq('is_indexable', true)
-    .limit(5000);
-
-  const eventPages = (events || []).map((e: any) => ({
-    url: `${BASE_URL}/events/${e.slug}`,
-    lastModified: e.updated_at ? new Date(e.updated_at) : new Date(),
-  }));
-
-  const localityPages = (localities || []).map((l: any) => ({
-    url: `${BASE_URL}/jaipur/${l.slug}`,
-    lastModified: l.updated_at ? new Date(l.updated_at) : new Date(),
-  }));
-
-  const venuePages = (venues || []).map((v: any) => ({
-    url: `${BASE_URL}/venues/${v.slug}`,
-    lastModified: v.updated_at ? new Date(v.updated_at) : new Date(),
-  }));
-
-  const artistPages = (artists || []).map((a: any) => ({
-    url: `${BASE_URL}/artists/${a.slug}`,
-    lastModified: a.updated_at ? new Date(a.updated_at) : new Date(),
-  }));
-
-  const merchantPages = (merchants || []).map((m: any) => ({
-    url: `${BASE_URL}/merchant/${m.slug}`,
-    lastModified: m.updated_at ? new Date(m.updated_at) : new Date(),
-  }));
-
-  const dealPages = (deals || []).map((d: any) => ({
-    url: `${BASE_URL}/deal/${d.slug}`,
-    lastModified: d.updated_at ? new Date(d.updated_at) : new Date(),
-  }));
-
-  const categoryPages = (categories || []).map((c: any) => ({
-    url: `${BASE_URL}/categories/${c.slug}`,
-    lastModified: c.updated_at ? new Date(c.updated_at) : new Date(),
-  }));
+  const deals = (dealsRes.data || [])
+    .filter((row: any) => row?.slug)
+    .map((row: any) => ({
+      url: `${base}/deal/${row.slug}`,
+      lastModified: row.updated_at ? new Date(row.updated_at) : new Date(),
+      changeFrequency: 'weekly' as const,
+      priority: 0.6,
+    }));
 
   return [
-    ...staticPages,
-    ...eventPages,
-    ...localityPages,
-    ...venuePages,
-    ...artistPages,
-    ...merchantPages,
-    ...dealPages,
-    ...categoryPages,
+    {
+      url: `${base}/`,
+      lastModified: new Date(),
+      changeFrequency: 'daily',
+      priority: 1,
+    },
+    {
+      url: `${base}/events`,
+      lastModified: new Date(),
+      changeFrequency: 'daily',
+      priority: 0.6,
+    },
+    {
+      url: `${base}/deals`,
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.5,
+    },
+    ...events,
+    ...localities,
+    ...deals,
   ];
 }
