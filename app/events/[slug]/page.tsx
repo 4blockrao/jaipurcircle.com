@@ -1,13 +1,13 @@
 import { notFound } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase";
-import EventSectionGrid from "@/components/events/EventSectionGrid";
-import EventFreshnessBadge from "@/components/events/EventFreshnessBadge";
 import EventSchema from "./EventSchema";
-import {
-  formatEventDateTime,
-  getEventDisplayState,
-  pickEventDate,
-} from "@/lib/events/core";
+import EventHero from "@/components/events/detail/EventHero";
+import EventFacts from "@/components/events/detail/EventFacts";
+import EventSummary from "@/components/events/detail/EventSummary";
+import EventGraphLinks from "@/components/events/detail/EventGraphLinks";
+import EventArchiveBlock from "@/components/events/detail/EventArchiveBlock";
+import EventRecommendations from "@/components/events/detail/EventRecommendations";
+import { getEventDisplayState, pickEventDate, formatEventDateTime } from "@/lib/events/core";
 import { buildEventRecommendationSections } from "@/lib/events/recommendations";
 
 export const dynamic = "force-dynamic";
@@ -97,7 +97,7 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
   });
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8">
+    <main className="mx-auto max-w-6xl px-4 py-8">
       <EventSchema
         event={event}
         venue={venue}
@@ -106,114 +106,30 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
         artists={artists}
       />
 
-      <h1 className="text-3xl font-bold mb-4">{event.title}</h1>
+      <EventHero event={event} />
+      <EventFacts event={event} artists={artists} />
+      <EventSummary event={event} />
+      <EventGraphLinks event={event} artists={artists} venue={venue} locality={locality} />
 
-      <div className="mb-4">
-        <EventFreshnessBadge
-          lastVerifiedAt={event.last_verified_at}
-          updatedAt={event.updated_at}
-        />
-      </div>
+      {state === "ended" ? <EventArchiveBlock /> : null}
 
-      {state === "ended" && (
-        <div className="mb-4 text-red-600 font-semibold">
-          Event Closed
-        </div>
-      )}
-
-      <div className="mb-6 space-y-3">
-        <p>
-          <strong>{event.title}</strong> is scheduled at{" "}
-          <strong>{event.venue_name || "Venue TBA"}</strong>,{" "}
-          {event.locality || locality?.name || "Jaipur"}, Jaipur on{" "}
-          {formatEventDateTime(pickEventDate(event))}.
-        </p>
-
-        {event.short_description ? (
-          <p className="text-gray-700">{event.short_description}</p>
-        ) : null}
-
-        {artists.length > 0 ? (
-          <div className="pt-1">
-            <div className="mb-2 text-sm font-medium text-gray-700">
-              Artists / Performers
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {artists.map((artist: any) => (
-                <a
-                  key={artist.id}
-                  href={`/artists/${artist.slug}`}
-                  className="rounded-full bg-gray-100 px-4 py-2 text-sm hover:bg-gray-200"
-                >
-                  {artist.name}
-                </a>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap gap-3 pt-1 text-sm">
-          {event.locality || locality?.slug ? (
-            <a
-              href={`/jaipur/${locality?.slug || event.locality}`}
-              className="rounded-full bg-gray-100 px-4 py-2 hover:bg-gray-200"
-            >
-              Explore {event.locality || locality?.name || "this locality"}
-            </a>
-          ) : null}
-
-          {venue?.slug || event.venue_name ? (
-            <a
-              href={`/venues/${venue?.slug || String(event.venue_name).toLowerCase().replace(/\s+/g, "-")}`}
-              className="rounded-full bg-gray-100 px-4 py-2 hover:bg-gray-200"
-            >
-              View venue page
-            </a>
-          ) : null}
-        </div>
-      </div>
-
-      {state !== "ended" ? (
-        event.registration_url || event.source_url ? (
-          <a
-            href={event.registration_url || event.source_url}
-            className="inline-block bg-black text-white px-6 py-3 rounded"
-          >
-            Book Tickets
-          </a>
-        ) : (
-          <div className="inline-block bg-black text-white px-6 py-3 rounded">
-            View Details
-          </div>
-        )
-      ) : (
-        <div className="mt-8">
-          <h2 className="text-xl font-semibold mb-4">
-            Find Similar Upcoming Events
-          </h2>
-
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      {state === "ended" && similarEvents.length > 0 ? (
+        <section className="mt-8 rounded-[2rem] border border-gray-200 bg-white p-6 shadow-sm">
+          <h2 className="text-2xl font-semibold text-gray-900">Find Similar Upcoming Events</h2>
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
             {similarEvents.map((e) => (
-              <a key={e.id} href={`/events/${e.slug}`} className="border p-3 rounded">
-                <p className="font-medium">{e.title}</p>
-                <p className="text-sm text-gray-500">
+              <a key={e.id} href={`/events/${e.slug}`} className="rounded-2xl border border-gray-200 p-4 hover:bg-gray-50">
+                <p className="font-medium text-gray-900">{e.title}</p>
+                <p className="mt-1 text-sm text-gray-500">
                   {formatEventDateTime(e.start_date || e.start_time)}
                 </p>
               </a>
             ))}
           </div>
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      {recommendationSections.map((section) => (
-        <EventSectionGrid
-          key={section.key}
-          title={section.title}
-          description={section.description}
-          events={section.events}
-          emptyText=""
-        />
-      ))}
+      <EventRecommendations sections={recommendationSections} />
     </main>
   );
 }
