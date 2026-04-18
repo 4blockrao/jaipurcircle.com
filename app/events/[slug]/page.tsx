@@ -106,7 +106,7 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
         artists={artists}
       />
 
-      <EventHero event={event} />
+      <EventHero event={event} artists={artists} />
       <EventFacts event={event} artists={artists} />
       <EventSummary event={event} />
       <EventGraphLinks event={event} artists={artists} venue={venue} locality={locality} />
