@@ -8,7 +8,7 @@ import {
 
 function applyPublicEventFilters(query: any) {
   return query
-    .eq("status", "published")
+    .in("status", ["published", "upcoming"])
     .eq("editorial_status", "published")
     .eq("index_status", "index");
 }
