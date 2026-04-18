@@ -30,7 +30,7 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
     await Promise.all([
       supabase
         .from("event_artists")
-        .select("artist_id, artist:artists(id, name, slug)")
+        .select("artist_id, artist:artists(id, name, slug, status, editorial_status, index_status)")
         .eq("event_id", event.id),
       event.venue_id
         ? supabase.from("venues").select("*").eq("id", event.venue_id).maybeSingle()
@@ -46,7 +46,14 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
 
   const artists = (artistRows || [])
     .map((row: any) => row.artist)
-    .filter(Boolean);
+    .filter(
+      (artist: any) =>
+        artist &&
+        artist.slug &&
+        artist.status === "published" &&
+        artist.index_status === "index" &&
+        (artist.editorial_status === "published" || artist.editorial_status == null)
+    );
 
   const categories = (categoryRows || [])
     .map((row: any) => row.category)
@@ -68,7 +75,7 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
       .from("events")
       .select("*")
       .neq("id", event.id)
-      .eq("status", "published")
+      .in("status", ["published", "upcoming"])
       .eq("editorial_status", "published")
       .limit(6);
 
@@ -114,7 +121,7 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
         </div>
       )}
 
-      <div className="mb-6 space-y-2">
+      <div className="mb-6 space-y-3">
         <p>
           <strong>{event.title}</strong> is scheduled at{" "}
           <strong>{event.venue_name || "Venue TBA"}</strong>,{" "}
@@ -126,7 +133,26 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
           <p className="text-gray-700">{event.short_description}</p>
         ) : null}
 
-        <div className="flex flex-wrap gap-3 pt-2 text-sm">
+        {artists.length > 0 ? (
+          <div className="pt-1">
+            <div className="mb-2 text-sm font-medium text-gray-700">
+              Artists / Performers
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {artists.map((artist: any) => (
+                <a
+                  key={artist.id}
+                  href={`/artists/${artist.slug}`}
+                  className="rounded-full bg-gray-100 px-4 py-2 text-sm hover:bg-gray-200"
+                >
+                  {artist.name}
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap gap-3 pt-1 text-sm">
           {event.locality || locality?.slug ? (
             <a
               href={`/jaipur/${locality?.slug || event.locality}`}
@@ -144,16 +170,6 @@ export default async function EventPage({ params }: { params: Promise<{ slug: st
               View venue page
             </a>
           ) : null}
-
-          {artists.slice(0, 2).map((artist: any) => (
-            <a
-              key={artist.id}
-              href={`/artists/${artist.slug}`}
-              className="rounded-full bg-gray-100 px-4 py-2 hover:bg-gray-200"
-            >
-              {artist.name} in Jaipur
-            </a>
-          ))}
         </div>
       </div>
 
