@@ -6,7 +6,6 @@ type SearchParams = Promise<{
   q?: string;
   search?: string;
   type?: string;
-  category?: string;
 }>;
 
 export const metadata = {
@@ -26,7 +25,6 @@ export default async function DealsPage({
   const incomingLocation = String(sp.location || '').trim();
   const incomingSearch = String(sp.search || sp.q || '').trim();
   const incomingType = String(sp.type || '').trim();
-  const incomingCategory = String(sp.category || '').trim();
 
   let resolvedLocality: any = null;
 
@@ -37,8 +35,16 @@ export default async function DealsPage({
 
   let query = supabase
     .from('deals')
-    .select('*')
+    .select(`
+      *,
+      localities (
+        id,
+        name,
+        slug
+      )
+    `)
     .eq('is_indexable', true)
+    .eq('editorial_status', 'published')
     .order('created_at', { ascending: false });
 
   if (incomingSearch) {
@@ -49,17 +55,11 @@ export default async function DealsPage({
   }
 
   if (incomingType) {
-    query = query.eq('type', incomingType);
-  }
-
-  if (incomingCategory) {
-    query = query.eq('category', incomingCategory);
+    query = query.eq('deal_type', incomingType);
   }
 
   if (resolvedLocality?.id) {
     query = query.eq('locality_id', resolvedLocality.id);
-  } else if (resolvedLocality?.slug) {
-    query = query.eq('locality', resolvedLocality.slug);
   }
 
   const { data: deals } = await query.limit(60);
@@ -97,9 +97,9 @@ export default async function DealsPage({
               className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-gray-400"
             />
             <input
-              name="category"
-              defaultValue={incomingCategory}
-              placeholder="Category"
+              name="type"
+              defaultValue={incomingType}
+              placeholder="Deal type"
               className="w-full rounded-2xl border border-gray-200 px-4 py-3 outline-none focus:border-gray-400"
             />
           </div>
@@ -132,20 +132,31 @@ export default async function DealsPage({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {deals.map((deal: any) => (
-            <a
-              key={deal.id}
-              href={`/deal/${deal.slug || deal.id}`}
-              className="block bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-md transition"
-            >
-              <h2 className="text-lg font-semibold text-gray-900">
-                {deal.title}
-              </h2>
-              <p className="mt-2 text-sm text-gray-600">
-                {deal.meta_description || deal.description}
-              </p>
-            </a>
-          ))}
+          {deals.map((deal: any) => {
+            const locality = Array.isArray(deal.localities) ? deal.localities[0] : deal.localities;
+
+            return (
+              <a
+                key={deal.id}
+                href={`/deal/${deal.slug || deal.id}`}
+                className="block bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-md transition"
+              >
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {deal.title}
+                </h2>
+
+                <p className="mt-2 text-sm text-gray-600">
+                  {deal.meta_description || deal.description}
+                </p>
+
+                {locality?.name ? (
+                  <p className="mt-3 text-xs font-medium text-blue-600">
+                    {locality.name}, Jaipur
+                  </p>
+                ) : null}
+              </a>
+            );
+          })}
         </div>
       )}
     </main>
