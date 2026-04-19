@@ -65,6 +65,7 @@ export default async function LocalityPage({
 }) {
   const { slug } = await params;
   const supabase = createServerSupabaseClient();
+  const nowIso = new Date().toISOString();
 
   const { data: locality, error } = await supabase
     .from("localities")
@@ -74,7 +75,13 @@ export default async function LocalityPage({
 
   if (!locality || error || !locality.should_index) return notFound();
 
-  const [upcomingEvents, pastEvents, venues] = await Promise.all([
+  const [
+    upcomingEvents,
+    pastEvents,
+    venues,
+    exactUpcomingCountRes,
+    exactVenueCountRes,
+  ] = await Promise.all([
     getUpcomingEventsForLocality(supabase, {
       localityId: locality.id,
       localitySlug: locality.slug,
@@ -89,18 +96,56 @@ export default async function LocalityPage({
       localitySlug: locality.slug,
       limit: 6,
     }),
+    supabase
+      .from("events")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "published")
+      .eq("editorial_status", "published")
+      .eq("index_status", "index")
+      .eq("locality_id", locality.id)
+      .gte("start_date", nowIso),
+    supabase
+      .from("venues")
+      .select("id", { count: "exact", head: true })
+      .eq("locality_id", locality.id),
   ]);
 
-  const upcomingCount = countItems(upcomingEvents);
-  const pastCount = countItems(pastEvents);
-  const venueCount = countItems(venues);
+  const displayedUpcomingCount = countItems(upcomingEvents);
+  const displayedPastCount = countItems(pastEvents);
+  const displayedVenueCount = countItems(venues);
+
+  const exactUpcomingCount = exactUpcomingCountRes.count || 0;
+  const exactVenueCount = exactVenueCountRes.count || 0;
+
+  const showingExactEvents = exactUpcomingCount > 0;
+  const showingExactVenues = exactVenueCount > 0;
+
+  const eventsHeading = showingExactEvents
+    ? `Upcoming events in ${locality.name}`
+    : `Popular upcoming events near ${locality.name}`;
+
+  const eventsDescription = showingExactEvents
+    ? `Discover upcoming events, experiences, and gatherings connected to ${locality.name}, Jaipur.`
+    : `There may not be enough exact locality-tagged events yet, so this section shows relevant upcoming Jaipur events around and beyond ${locality.name}.`;
+
+  const venuesHeading = showingExactVenues
+    ? `Popular venues in ${locality.name}`
+    : `Popular Jaipur venues near ${locality.name}`;
+
+  const venuesDescription = showingExactVenues
+    ? `Explore venues connected to this locality and use them as discovery hubs for events in Jaipur.`
+    : `Exact venue coverage for ${locality.name} is still growing, so this section shows nearby or broader Jaipur venue discovery.`;
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-10">
       <nav className="text-sm text-gray-500">
-        <a href="/" className="hover:text-black">Home</a>
+        <a href="/" className="hover:text-black">
+          Home
+        </a>
         <span> &gt; </span>
-        <a href="/jaipur" className="hover:text-black">Jaipur</a>
+        <a href="/jaipur" className="hover:text-black">
+          Jaipur
+        </a>
         <span> &gt; </span>
         <span className="text-black">{locality.name}</span>
       </nav>
@@ -131,10 +176,10 @@ export default async function LocalityPage({
             </span>
           ) : null}
           <span className="rounded-full bg-gray-100 px-4 py-2">
-            Upcoming Events: {upcomingCount}
+            Exact Local Events: {exactUpcomingCount}
           </span>
           <span className="rounded-full bg-gray-100 px-4 py-2">
-            Venues: {venueCount}
+            Exact Local Venues: {exactVenueCount}
           </span>
         </div>
 
@@ -162,8 +207,8 @@ export default async function LocalityPage({
         </div>
       </header>
 
-      <section className="mt-10 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-6">
+      <section className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 lg:col-span-2">
           <h2 className="text-xl font-semibold text-gray-900">
             About {locality.name}, Jaipur
           </h2>
@@ -182,23 +227,33 @@ export default async function LocalityPage({
           <div className="mt-4 space-y-3 text-sm text-gray-700">
             <div className="flex justify-between gap-4">
               <span className="text-gray-500">Zone</span>
-              <span className="font-medium text-right">{locality.zone || "—"}</span>
+              <span className="text-right font-medium">
+                {locality.zone || "—"}
+              </span>
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-gray-500">Municipality</span>
-              <span className="font-medium text-right">{locality.municipality || "—"}</span>
+              <span className="text-right font-medium">
+                {locality.municipality || "—"}
+              </span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-gray-500">Upcoming events</span>
-              <span className="font-medium text-right">{upcomingCount}</span>
+              <span className="text-gray-500">Displayed upcoming events</span>
+              <span className="text-right font-medium">
+                {displayedUpcomingCount}
+              </span>
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-gray-500">Past events</span>
-              <span className="font-medium text-right">{pastCount}</span>
+              <span className="text-right font-medium">
+                {displayedPastCount}
+              </span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-gray-500">Venues</span>
-              <span className="font-medium text-right">{venueCount}</span>
+              <span className="text-gray-500">Displayed venues</span>
+              <span className="text-right font-medium">
+                {displayedVenueCount}
+              </span>
             </div>
           </div>
         </div>
@@ -216,28 +271,49 @@ export default async function LocalityPage({
           Explore {locality.name}
         </h2>
         <p className="mt-2 text-sm text-gray-600">
-          Use these locality discovery paths to browse structured JaipurCircle content for this area.
+          Use these locality discovery paths to browse structured JaipurCircle
+          content for this area.
         </p>
 
-        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <a href={`/jaipur/${locality.slug}/events`} className="rounded-2xl border border-gray-200 p-4 hover:shadow-sm transition">
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <a
+            href={`/jaipur/${locality.slug}/events`}
+            className="rounded-2xl border border-gray-200 p-4 transition hover:shadow-sm"
+          >
             <div className="text-sm text-gray-500">Category Page</div>
-            <div className="mt-1 font-semibold text-gray-900">Events in {locality.name}</div>
+            <div className="mt-1 font-semibold text-gray-900">
+              Events in {locality.name}
+            </div>
           </a>
 
-          <a href={`/jaipur/${locality.slug}/news`} className="rounded-2xl border border-gray-200 p-4 hover:shadow-sm transition">
+          <a
+            href={`/jaipur/${locality.slug}/news`}
+            className="rounded-2xl border border-gray-200 p-4 transition hover:shadow-sm"
+          >
             <div className="text-sm text-gray-500">Category Page</div>
-            <div className="mt-1 font-semibold text-gray-900">News in {locality.name}</div>
+            <div className="mt-1 font-semibold text-gray-900">
+              News in {locality.name}
+            </div>
           </a>
 
-          <a href={`/jaipur/${locality.slug}/shopping`} className="rounded-2xl border border-gray-200 p-4 hover:shadow-sm transition">
+          <a
+            href={`/jaipur/${locality.slug}/shopping`}
+            className="rounded-2xl border border-gray-200 p-4 transition hover:shadow-sm"
+          >
             <div className="text-sm text-gray-500">Category Page</div>
-            <div className="mt-1 font-semibold text-gray-900">Shopping in {locality.name}</div>
+            <div className="mt-1 font-semibold text-gray-900">
+              Shopping in {locality.name}
+            </div>
           </a>
 
-          <a href="/jaipur" className="rounded-2xl border border-gray-200 p-4 hover:shadow-sm transition">
+          <a
+            href="/jaipur"
+            className="rounded-2xl border border-gray-200 p-4 transition hover:shadow-sm"
+          >
             <div className="text-sm text-gray-500">Browse More</div>
-            <div className="mt-1 font-semibold text-gray-900">All Jaipur localities</div>
+            <div className="mt-1 font-semibold text-gray-900">
+              All Jaipur localities
+            </div>
           </a>
         </div>
       </section>
@@ -246,18 +322,19 @@ export default async function LocalityPage({
         <div className="flex items-end justify-between gap-4">
           <div>
             <h2 className="text-2xl font-semibold text-gray-900">
-              Upcoming events in {locality.name}
+              {eventsHeading}
             </h2>
-            <p className="mt-2 text-sm text-gray-600">
-              Discover upcoming events, experiences, and gatherings connected to {locality.name}, Jaipur.
-            </p>
+            <p className="mt-2 text-sm text-gray-600">{eventsDescription}</p>
           </div>
-          <a href={`/jaipur/${locality.slug}/events`} className="text-sm font-medium text-blue-600">
+          <a
+            href={`/jaipur/${locality.slug}/events`}
+            className="text-sm font-medium text-blue-600"
+          >
             View all →
           </a>
         </div>
 
-        {upcomingCount > 0 ? (
+        {displayedUpcomingCount > 0 ? (
           <EventSectionGrid
             title=""
             description=""
@@ -268,10 +345,16 @@ export default async function LocalityPage({
           <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
             <p>No upcoming events are currently linked to {locality.name}.</p>
             <div className="mt-4 flex flex-wrap gap-3">
-              <a href="/events" className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100">
+              <a
+                href="/events"
+                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+              >
                 Explore all Jaipur events →
               </a>
-              <a href="/jaipur" className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50">
+              <a
+                href="/jaipur"
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
                 Browse other Jaipur localities →
               </a>
             </div>
@@ -286,12 +369,13 @@ export default async function LocalityPage({
               Event history in {locality.name}
             </h2>
             <p className="mt-2 text-sm text-gray-600">
-              JaipurCircle keeps past event memory visible wherever possible so locality pages can compound over time.
+              JaipurCircle keeps past event memory visible wherever possible so
+              locality pages can compound over time.
             </p>
           </div>
         </div>
 
-        {pastCount > 0 ? (
+        {displayedPastCount > 0 ? (
           <EventSectionGrid
             title=""
             description=""
@@ -302,10 +386,16 @@ export default async function LocalityPage({
           <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
             <p>No past event archive is currently available for {locality.name}.</p>
             <div className="mt-4 flex flex-wrap gap-3">
-              <a href={`/jaipur/${locality.slug}/events`} className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100">
+              <a
+                href={`/jaipur/${locality.slug}/events`}
+                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+              >
                 Check locality events →
               </a>
-              <a href="/events" className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50">
+              <a
+                href="/events"
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
                 Explore Jaipur event archive →
               </a>
             </div>
@@ -314,21 +404,21 @@ export default async function LocalityPage({
       </section>
 
       <section className="mt-12">
-        <h2 className="text-xl font-semibold">Popular venues in {locality.name}</h2>
-        <p className="mt-2 text-sm text-gray-600">
-          Explore venues connected to this locality and use them as discovery hubs for events in Jaipur.
-        </p>
+        <h2 className="text-xl font-semibold">{venuesHeading}</h2>
+        <p className="mt-2 text-sm text-gray-600">{venuesDescription}</p>
 
-        {venueCount > 0 ? (
-          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        {displayedVenueCount > 0 ? (
+          <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
             {venues.map((venue: any) => (
               <a
                 key={venue.id}
                 href={`/venues/${venue.slug}`}
                 className="block rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
               >
-                <h3 className="text-lg font-semibold text-gray-900">{venue.name}</h3>
-                <p className="mt-2 text-sm text-gray-600 line-clamp-3">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {venue.name}
+                </h3>
+                <p className="mt-2 line-clamp-3 text-sm text-gray-600">
                   {venue.description ||
                     venue.seo_blurb ||
                     `${venue.name} is a venue connected to ${locality.name}, Jaipur.`}
@@ -343,10 +433,16 @@ export default async function LocalityPage({
           <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
             <p>No venue cluster is available for {locality.name} yet.</p>
             <div className="mt-4 flex flex-wrap gap-3">
-              <a href="/venues" className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100">
+              <a
+                href="/venues"
+                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+              >
                 Explore Jaipur venues →
               </a>
-              <a href="/jaipur" className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50">
+              <a
+                href="/jaipur"
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
                 Browse other localities →
               </a>
             </div>
@@ -367,10 +463,7 @@ export default async function LocalityPage({
         nearbyLocalities={locality.nearby_localities}
       />
 
-      <LocalityIntentMatrix
-        name={locality.name}
-        slug={locality.slug}
-      />
+      <LocalityIntentMatrix name={locality.name} slug={locality.slug} />
 
       <LocalityFAQ
         name={locality.name}
