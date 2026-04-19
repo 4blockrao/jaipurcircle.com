@@ -1,9 +1,3 @@
-import LocalityDifferentiation from "@/components/locality/LocalityDifferentiation";
-import LocalityDifferentiation from "@/components/locality/LocalityDifferentiation";
-import LocalityIntentMatrix from "@/components/locality/LocalityIntentMatrix";
-import CivicFacts from "@/components/locality/CivicFacts";
-import NearbyLocalities from "@/components/locality/NearbyLocalities";
-import LocalityFAQ from "@/components/locality/LocalityFAQ";
 import { notFound } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import EventSectionGrid from "@/components/events/EventSectionGrid";
@@ -12,6 +6,11 @@ import {
   getUpcomingEventsForLocality,
   getVenuesForLocality,
 } from "@/lib/events/queries";
+import CivicFacts from "@/components/locality/CivicFacts";
+import NearbyLocalities from "@/components/locality/NearbyLocalities";
+import LocalityIntentMatrix from "@/components/locality/LocalityIntentMatrix";
+import LocalityFAQ from "@/components/locality/LocalityFAQ";
+import LocalityDifferentiation from "@/components/locality/LocalityDifferentiation";
 
 export const dynamic = "force-dynamic";
 
@@ -205,7 +204,6 @@ export default async function LocalityPage({
         </div>
       </section>
 
-
       <LocalityDifferentiation
         name={locality.name}
         bestFor={locality.best_for}
@@ -270,16 +268,10 @@ export default async function LocalityPage({
           <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
             <p>No upcoming events are currently linked to {locality.name}.</p>
             <div className="mt-4 flex flex-wrap gap-3">
-              <a
-                href="/events"
-                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
-              >
+              <a href="/events" className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100">
                 Explore all Jaipur events →
               </a>
-              <a
-                href="/jaipur"
-                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
-              >
+              <a href="/jaipur" className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50">
                 Browse other Jaipur localities →
               </a>
             </div>
@@ -310,16 +302,10 @@ export default async function LocalityPage({
           <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
             <p>No past event archive is currently available for {locality.name}.</p>
             <div className="mt-4 flex flex-wrap gap-3">
-              <a
-                href={`/jaipur/${locality.slug}/events`}
-                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
-              >
+              <a href={`/jaipur/${locality.slug}/events`} className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100">
                 Check locality events →
               </a>
-              <a
-                href="/events"
-                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
-              >
+              <a href="/events" className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50">
                 Explore Jaipur event archive →
               </a>
             </div>
@@ -357,25 +343,17 @@ export default async function LocalityPage({
           <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
             <p>No venue cluster is available for {locality.name} yet.</p>
             <div className="mt-4 flex flex-wrap gap-3">
-              <a
-                href="/venues"
-                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
-              >
+              <a href="/venues" className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100">
                 Explore Jaipur venues →
               </a>
-              <a
-                href="/jaipur"
-                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
-              >
+              <a href="/jaipur" className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50">
                 Browse other localities →
               </a>
             </div>
           </div>
         )}
       </section>
-    
-      
-      
+
       <CivicFacts
         name={locality.name}
         zone={locality.zone}
@@ -384,23 +362,21 @@ export default async function LocalityPage({
         policeStation={locality.police_station}
       />
 
-<NearbyLocalities
+      <NearbyLocalities
         currentSlug={locality.slug}
         nearbyLocalities={locality.nearby_localities}
       />
-
 
       <LocalityIntentMatrix
         name={locality.name}
         slug={locality.slug}
       />
 
-<LocalityFAQ
+      <LocalityFAQ
         name={locality.name}
         zone={locality.zone}
         municipality={locality.municipality}
       />
-
-</main>
+    </main>
   );
 }
