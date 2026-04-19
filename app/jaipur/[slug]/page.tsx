@@ -1,3 +1,4 @@
+import LocalityIntentMatrix from "@/components/locality/LocalityIntentMatrix";
 import CivicFacts from "@/components/locality/CivicFacts";
 import NearbyLocalities from "@/components/locality/NearbyLocalities";
 import LocalityFAQ from "@/components/locality/LocalityFAQ";
@@ -376,6 +377,12 @@ export default async function LocalityPage({
 <NearbyLocalities
         currentSlug={locality.slug}
         nearbyLocalities={locality.nearby_localities}
+      />
+
+
+      <LocalityIntentMatrix
+        name={locality.name}
+        slug={locality.slug}
       />
 
 <LocalityFAQ
