@@ -153,20 +153,63 @@ export async function getUpcomingEventsForLocality(
     limit?: number;
   }
 ) {
-  let query = applyPublicEventFilters(
+  if (!localityId && !localitySlug) return [];
+
+  const nowIso = new Date().toISOString();
+
+  let strictQuery = applyPublicEventFilters(
     supabase.from("events").select("*")
   );
 
-  if (!localityId) {
-    return [];
+  if (localityId) {
+    strictQuery = strictQuery.eq("locality_id", localityId);
+  } else {
+    strictQuery = strictQuery.eq("locality", localitySlug);
   }
-  query = query.eq("locality_id", localityId);
 
-  const { data } = await query.limit(limit * 10);
+  const { data: strictData } = await strictQuery
+    .gte("start_time", nowIso)
+    .order("start_time", { ascending: true })
+    .limit(limit * 10);
+
+  const strictEvents = trimEventSection(
+    sortEventsByLifecycle(
+      filterUpcomingInMemory(dedupeEventsById(strictData || []))
+    ),
+    { limit }
+  );
+
+  if (strictEvents.length > 0) return strictEvents;
+
+  if (localitySlug) {
+    const { data: fallbackData } = await applyPublicEventFilters(
+      supabase.from("events").select("*")
+    )
+      .ilike("locality", `%${localitySlug}%`)
+      .gte("start_time", nowIso)
+      .order("start_time", { ascending: true })
+      .limit(limit * 10);
+
+    const fallbackEvents = trimEventSection(
+      sortEventsByLifecycle(
+        filterUpcomingInMemory(dedupeEventsById(fallbackData || []))
+      ),
+      { limit }
+    );
+
+    if (fallbackEvents.length > 0) return fallbackEvents;
+  }
+
+  const { data: jaipurData } = await applyPublicEventFilters(
+    supabase.from("events").select("*")
+  )
+    .gte("start_time", nowIso)
+    .order("start_time", { ascending: true })
+    .limit(limit * 10);
 
   return trimEventSection(
     sortEventsByLifecycle(
-      filterUpcomingInMemory(dedupeEventsById(data || []))
+      filterUpcomingInMemory(dedupeEventsById(jaipurData || []))
     ),
     { limit }
   );
