@@ -49,10 +49,10 @@ export async function getEventsByLocality(
     supabase.from("events").select("*").neq("id", eventId)
   );
 
-  if (!localityId) return [];
-    query = query.eq("locality_id", localityId); else {
+  if (!localityId) {
     return [];
   }
+  query = query.eq("locality_id", localityId);
 
   const { data } = await query.limit(limit * 6);
 
@@ -157,10 +157,10 @@ export async function getUpcomingEventsForLocality(
     supabase.from("events").select("*")
   );
 
-  if (!localityId) return [];
-    query = query.eq("locality_id", localityId); else {
+  if (!localityId) {
     return [];
   }
+  query = query.eq("locality_id", localityId);
 
   const { data } = await query.limit(limit * 10);
 
@@ -188,10 +188,10 @@ export async function getPastEventsForLocality(
     supabase.from("events").select("*")
   );
 
-  if (!localityId) return [];
-    query = query.eq("locality_id", localityId); else {
+  if (!localityId) {
     return [];
   }
+  query = query.eq("locality_id", localityId);
 
   const { data } = await query.limit(limit * 10);
 
