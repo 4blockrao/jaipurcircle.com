@@ -1,3 +1,4 @@
+import LocalityDifferentiation from "@/components/locality/LocalityDifferentiation";
 import LocalityIntentMatrix from "@/components/locality/LocalityIntentMatrix";
 import CivicFacts from "@/components/locality/CivicFacts";
 import NearbyLocalities from "@/components/locality/NearbyLocalities";
