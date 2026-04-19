@@ -1,3 +1,4 @@
+import NearbyLocalities from "@/components/locality/NearbyLocalities";
 import LocalityFAQ from "@/components/locality/LocalityFAQ";
 import { notFound } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase";
@@ -319,7 +320,13 @@ export default async function LocalityPage({
         )}
       </section>
     
-      <LocalityFAQ
+      
+      <NearbyLocalities
+        currentSlug={locality.slug}
+        nearbyLocalities={locality.nearby_localities}
+      />
+
+<LocalityFAQ
         name={locality.name}
         zone={locality.zone}
         municipality={locality.municipality}
