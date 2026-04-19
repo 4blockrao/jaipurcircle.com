@@ -2,31 +2,13 @@ import {
   dedupeEventsById,
   sortEventsByLifecycle,
   trimEventSection,
-  parseEventDate,
-  pickEventDate,
 } from "@/lib/events/core";
 
 function applyPublicEventFilters(query: any) {
   return query
-    .in("status", ["published", "upcoming"])
+    .eq("status", "published")
     .eq("editorial_status", "published")
     .eq("index_status", "index");
-}
-
-function filterUpcomingInMemory(items: any[]) {
-  const now = new Date();
-  return (items || []).filter((item: any) => {
-    const date = parseEventDate(pickEventDate(item));
-    return date && date >= now;
-  });
-}
-
-function filterPastInMemory(items: any[]) {
-  const now = new Date();
-  return (items || []).filter((item: any) => {
-    const date = parseEventDate(pickEventDate(item));
-    return date && date < now;
-  });
 }
 
 export async function getEventsByLocality(
@@ -34,27 +16,22 @@ export async function getEventsByLocality(
   {
     eventId,
     localityId,
-    localitySlug,
     limit = 6,
     excludeIds = [],
   }: {
     eventId: string;
     localityId?: string | null;
-    localitySlug?: string | null;
     limit?: number;
     excludeIds?: string[];
   }
 ) {
-  let query = applyPublicEventFilters(
+  if (!localityId) return [];
+
+  const { data } = await applyPublicEventFilters(
     supabase.from("events").select("*").neq("id", eventId)
-  );
-
-  if (!localityId) {
-    return [];
-  }
-  query = query.eq("locality_id", localityId);
-
-  const { data } = await query.limit(limit * 6);
+  )
+    .eq("locality_id", localityId)
+    .limit(limit * 4);
 
   return trimEventSection(sortEventsByLifecycle(dedupeEventsById(data || [])), {
     limit,
@@ -92,8 +69,7 @@ export async function getEventsByVenue(
     return [];
   }
 
-  const { data } = await query.limit(limit * 6);
-
+  const { data } = await query.limit(limit * 4);
   return trimEventSection(sortEventsByLifecycle(dedupeEventsById(data || [])), {
     limit,
     excludeIds,
@@ -153,49 +129,36 @@ export async function getUpcomingEventsForLocality(
     limit?: number;
   }
 ) {
-  if (!localityId && !localitySlug) return [];
-
   const nowIso = new Date().toISOString();
 
-  let strictQuery = applyPublicEventFilters(
-    supabase.from("events").select("*")
-  );
-
   if (localityId) {
-    strictQuery = strictQuery.eq("locality_id", localityId);
-  } else {
-    strictQuery = strictQuery.eq("locality", localitySlug);
+    const { data: strictData } = await applyPublicEventFilters(
+      supabase.from("events").select("*")
+    )
+      .eq("locality_id", localityId)
+      .gte("start_date", nowIso)
+      .order("start_date", { ascending: true })
+      .limit(limit * 2);
+
+    const strictEvents = trimEventSection(dedupeEventsById(strictData || []), {
+      limit,
+    });
+
+    if (strictEvents.length > 0) return strictEvents;
   }
-
-  const { data: strictData } = await strictQuery
-    .gte("start_time", nowIso)
-    .order("start_time", { ascending: true })
-    .limit(limit * 10);
-
-  const strictEvents = trimEventSection(
-    sortEventsByLifecycle(
-      filterUpcomingInMemory(dedupeEventsById(strictData || []))
-    ),
-    { limit }
-  );
-
-  if (strictEvents.length > 0) return strictEvents;
 
   if (localitySlug) {
     const { data: fallbackData } = await applyPublicEventFilters(
       supabase.from("events").select("*")
     )
       .ilike("locality", `%${localitySlug}%`)
-      .gte("start_time", nowIso)
-      .order("start_time", { ascending: true })
-      .limit(limit * 10);
+      .gte("start_date", nowIso)
+      .order("start_date", { ascending: true })
+      .limit(limit * 2);
 
-    const fallbackEvents = trimEventSection(
-      sortEventsByLifecycle(
-        filterUpcomingInMemory(dedupeEventsById(fallbackData || []))
-      ),
-      { limit }
-    );
+    const fallbackEvents = trimEventSection(dedupeEventsById(fallbackData || []), {
+      limit,
+    });
 
     if (fallbackEvents.length > 0) return fallbackEvents;
   }
@@ -203,47 +166,34 @@ export async function getUpcomingEventsForLocality(
   const { data: jaipurData } = await applyPublicEventFilters(
     supabase.from("events").select("*")
   )
-    .gte("start_time", nowIso)
-    .order("start_time", { ascending: true })
-    .limit(limit * 10);
+    .gte("start_date", nowIso)
+    .order("start_date", { ascending: true })
+    .limit(limit * 2);
 
-  return trimEventSection(
-    sortEventsByLifecycle(
-      filterUpcomingInMemory(dedupeEventsById(jaipurData || []))
-    ),
-    { limit }
-  );
+  return trimEventSection(dedupeEventsById(jaipurData || []), { limit });
 }
 
 export async function getPastEventsForLocality(
   supabase: any,
   {
     localityId,
-    localitySlug,
     limit = 6,
   }: {
     localityId?: string | null;
-    localitySlug?: string | null;
     limit?: number;
   }
 ) {
-  let query = applyPublicEventFilters(
+  if (!localityId) return [];
+
+  const { data } = await applyPublicEventFilters(
     supabase.from("events").select("*")
-  );
+  )
+    .eq("locality_id", localityId)
+    .lt("start_date", new Date().toISOString())
+    .order("start_date", { ascending: false })
+    .limit(limit * 2);
 
-  if (!localityId) {
-    return [];
-  }
-  query = query.eq("locality_id", localityId);
-
-  const { data } = await query.limit(limit * 10);
-
-  return trimEventSection(
-    sortEventsByLifecycle(
-      filterPastInMemory(dedupeEventsById(data || []))
-    ),
-    { limit }
-  );
+  return trimEventSection(dedupeEventsById(data || []), { limit });
 }
 
 export async function getVenuesForLocality(
@@ -279,9 +229,7 @@ export async function getUpcomingEventsForVenue(
     limit?: number;
   }
 ) {
-  let query = applyPublicEventFilters(
-    supabase.from("events").select("*")
-  );
+  let query = applyPublicEventFilters(supabase.from("events").select("*"));
 
   if (venueId && venueName) {
     query = query.or(`venue_id.eq.${venueId},venue_name.eq.${venueName}`);
@@ -293,14 +241,12 @@ export async function getUpcomingEventsForVenue(
     return [];
   }
 
-  const { data } = await query.limit(limit * 10);
+  const { data } = await query
+    .gte("start_date", new Date().toISOString())
+    .order("start_date", { ascending: true })
+    .limit(limit * 2);
 
-  return trimEventSection(
-    sortEventsByLifecycle(
-      filterUpcomingInMemory(dedupeEventsById(data || []))
-    ),
-    { limit }
-  );
+  return trimEventSection(dedupeEventsById(data || []), { limit });
 }
 
 export async function getPastEventsForVenue(
@@ -315,9 +261,7 @@ export async function getPastEventsForVenue(
     limit?: number;
   }
 ) {
-  let query = applyPublicEventFilters(
-    supabase.from("events").select("*")
-  );
+  let query = applyPublicEventFilters(supabase.from("events").select("*"));
 
   if (venueId && venueName) {
     query = query.or(`venue_id.eq.${venueId},venue_name.eq.${venueName}`);
@@ -329,14 +273,12 @@ export async function getPastEventsForVenue(
     return [];
   }
 
-  const { data } = await query.limit(limit * 10);
+  const { data } = await query
+    .lt("start_date", new Date().toISOString())
+    .order("start_date", { ascending: false })
+    .limit(limit * 2);
 
-  return trimEventSection(
-    sortEventsByLifecycle(
-      filterPastInMemory(dedupeEventsById(data || []))
-    ),
-    { limit }
-  );
+  return trimEventSection(dedupeEventsById(data || []), { limit });
 }
 
 export async function getUpcomingEventsForArtist(
@@ -364,14 +306,12 @@ export async function getUpcomingEventsForArtist(
 
   const { data } = await applyPublicEventFilters(
     supabase.from("events").select("*").in("id", eventIds)
-  );
+  )
+    .gte("start_date", new Date().toISOString())
+    .order("start_date", { ascending: true })
+    .limit(limit * 2);
 
-  return trimEventSection(
-    sortEventsByLifecycle(
-      filterUpcomingInMemory(dedupeEventsById(data || []))
-    ),
-    { limit }
-  );
+  return trimEventSection(dedupeEventsById(data || []), { limit });
 }
 
 export async function getPastEventsForArtist(
@@ -399,14 +339,12 @@ export async function getPastEventsForArtist(
 
   const { data } = await applyPublicEventFilters(
     supabase.from("events").select("*").in("id", eventIds)
-  );
+  )
+    .lt("start_date", new Date().toISOString())
+    .order("start_date", { ascending: false })
+    .limit(limit * 2);
 
-  return trimEventSection(
-    sortEventsByLifecycle(
-      filterPastInMemory(dedupeEventsById(data || []))
-    ),
-    { limit }
-  );
+  return trimEventSection(dedupeEventsById(data || []), { limit });
 }
 
 export async function getVenueClusterForArtist(
