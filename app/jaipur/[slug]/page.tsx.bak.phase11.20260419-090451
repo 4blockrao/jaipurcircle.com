@@ -1,4 +1,3 @@
-import LocalityFAQ from "@/components/locality/LocalityFAQ";
 import { notFound } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import EventSectionGrid from "@/components/events/EventSectionGrid";
@@ -318,13 +317,6 @@ export default async function LocalityPage({
           </div>
         )}
       </section>
-    
-      <LocalityFAQ
-        name={locality.name}
-        zone={locality.zone}
-        municipality={locality.municipality}
-      />
-
-</main>
+    </main>
   );
 }
