@@ -49,13 +49,8 @@ export async function getEventsByLocality(
     supabase.from("events").select("*").neq("id", eventId)
   );
 
-  if (localityId && localitySlug) {
-    query = query.eq("locality_id", localityId);
-  } else if (localityId) {
-    query = query.eq("locality_id", localityId);
-  } else if (localitySlug) {
-    query = query.eq("locality", localitySlug);
-  } else {
+  if (!localityId) return [];
+    query = query.eq("locality_id", localityId); else {
     return [];
   }
 
@@ -162,13 +157,8 @@ export async function getUpcomingEventsForLocality(
     supabase.from("events").select("*")
   );
 
-  if (localityId && localitySlug) {
-    query = query.eq("locality_id", localityId);
-  } else if (localityId) {
-    query = query.eq("locality_id", localityId);
-  } else if (localitySlug) {
-    query = query.eq("locality", localitySlug);
-  } else {
+  if (!localityId) return [];
+    query = query.eq("locality_id", localityId); else {
     return [];
   }
 
@@ -198,13 +188,8 @@ export async function getPastEventsForLocality(
     supabase.from("events").select("*")
   );
 
-  if (localityId && localitySlug) {
-    query = query.eq("locality_id", localityId);
-  } else if (localityId) {
-    query = query.eq("locality_id", localityId);
-  } else if (localitySlug) {
-    query = query.eq("locality", localitySlug);
-  } else {
+  if (!localityId) return [];
+    query = query.eq("locality_id", localityId); else {
     return [];
   }
 
