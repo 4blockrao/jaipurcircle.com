@@ -11,6 +11,58 @@ function applyPublicEventFilters(query: any) {
     .eq("index_status", "index");
 }
 
+function uniqueIds(values: any[]) {
+  return Array.from(new Set((values || []).filter(Boolean)));
+}
+
+async function getNearbyLocalityIds(
+  supabase: any,
+  localityId?: string | null,
+  limit = 5
+): Promise<string[]> {
+  if (!localityId) return [];
+
+  const { data } = await supabase.rpc("get_nearby_locality_ids", {
+    p_locality_id: localityId,
+    p_limit: limit,
+  });
+
+  return uniqueIds((data || []).map((row: any) => row.locality_id));
+}
+
+function sortByLocalityPriority(
+  events: any[],
+  {
+    exactLocalityId,
+    nearbyLocalityIds = [],
+  }: {
+    exactLocalityId?: string | null;
+    nearbyLocalityIds?: string[];
+  }
+) {
+  const nearbySet = new Set(nearbyLocalityIds || []);
+
+  const score = (event: any) => {
+    if (exactLocalityId && event?.locality_id === exactLocalityId) return 1;
+    if (event?.locality_id && nearbySet.has(event.locality_id)) return 2;
+    if (String(event?.locality || "").toLowerCase() === "jaipur") return 4;
+    return 3;
+  };
+
+  return [...(events || [])].sort((a: any, b: any) => {
+    const scoreDiff = score(a) - score(b);
+    if (scoreDiff !== 0) return scoreDiff;
+
+    const aDate = new Date(a?.start_date || a?.start_time || 0).getTime();
+    const bDate = new Date(b?.start_date || b?.start_time || 0).getTime();
+
+    if (aDate && bDate) return aDate - bDate;
+    if (aDate) return -1;
+    if (bDate) return 1;
+    return 0;
+  });
+}
+
 export async function getEventsByLocality(
   supabase: any,
   {
@@ -28,6 +80,9 @@ export async function getEventsByLocality(
   }
 ) {
   const normalized = localitySlug?.replace(/-/g, " ");
+  const nearbyLocalityIds = await getNearbyLocalityIds(supabase, localityId, 5);
+
+  let combined: any[] = [];
 
   if (localityId) {
     const { data: byId } = await applyPublicEventFilters(
@@ -36,15 +91,17 @@ export async function getEventsByLocality(
       .eq("locality_id", localityId)
       .limit(limit * 4);
 
-    const idEvents = trimEventSection(
-      sortEventsByLifecycle(dedupeEventsById(byId || [])),
-      {
-        limit,
-        excludeIds,
-      }
-    );
+    combined = combined.concat(byId || []);
+  }
 
-    if (idEvents.length > 0) return idEvents;
+  if (nearbyLocalityIds.length > 0) {
+    const { data: nearby } = await applyPublicEventFilters(
+      supabase.from("events").select("*").neq("id", eventId)
+    )
+      .in("locality_id", nearbyLocalityIds)
+      .limit(limit * 4);
+
+    combined = combined.concat(nearby || []);
   }
 
   if (normalized) {
@@ -54,25 +111,22 @@ export async function getEventsByLocality(
       .ilike("locality", `%${normalized}%`)
       .limit(limit * 4);
 
-    const slugEvents = trimEventSection(
-      sortEventsByLifecycle(dedupeEventsById(bySlug || [])),
-      {
-        limit,
-        excludeIds,
-      }
-    );
-
-    if (slugEvents.length > 0) return slugEvents;
+    combined = combined.concat(bySlug || []);
   }
 
   const { data: cityEvents } = await applyPublicEventFilters(
     supabase.from("events").select("*").neq("id", eventId)
   )
-    .ilike("locality", "%jaipur%")
+    .or("locality.ilike.%jaipur%")
     .limit(limit * 4);
 
+  combined = combined.concat(cityEvents || []);
+
   return trimEventSection(
-    sortEventsByLifecycle(dedupeEventsById(cityEvents || [])),
+    sortByLocalityPriority(dedupeEventsById(combined), {
+      exactLocalityId: localityId,
+      nearbyLocalityIds,
+    }),
     {
       limit,
       excludeIds,
@@ -172,9 +226,12 @@ export async function getUpcomingEventsForLocality(
 ) {
   const nowIso = new Date().toISOString();
   const normalized = localitySlug?.replace(/-/g, " ");
+  const nearbyLocalityIds = await getNearbyLocalityIds(supabase, localityId, 5);
+
+  let combined: any[] = [];
 
   if (localityId) {
-    const { data: strictData } = await applyPublicEventFilters(
+    const { data: exactData } = await applyPublicEventFilters(
       supabase.from("events").select("*")
     )
       .eq("locality_id", localityId)
@@ -182,12 +239,19 @@ export async function getUpcomingEventsForLocality(
       .order("start_date", { ascending: true })
       .limit(limit * 4);
 
-    const strictEvents = trimEventSection(
-      sortEventsByLifecycle(dedupeEventsById(strictData || [])),
-      { limit }
-    );
+    combined = combined.concat(exactData || []);
+  }
 
-    if (strictEvents.length > 0) return strictEvents;
+  if (nearbyLocalityIds.length > 0) {
+    const { data: nearbyData } = await applyPublicEventFilters(
+      supabase.from("events").select("*")
+    )
+      .in("locality_id", nearbyLocalityIds)
+      .gte("start_date", nowIso)
+      .order("start_date", { ascending: true })
+      .limit(limit * 4);
+
+    combined = combined.concat(nearbyData || []);
   }
 
   if (normalized) {
@@ -199,40 +263,25 @@ export async function getUpcomingEventsForLocality(
       .order("start_date", { ascending: true })
       .limit(limit * 4);
 
-    const slugEvents = trimEventSection(
-      sortEventsByLifecycle(dedupeEventsById(slugData || [])),
-      { limit }
-    );
-
-    if (slugEvents.length > 0) return slugEvents;
+    combined = combined.concat(slugData || []);
   }
 
   const { data: cityData } = await applyPublicEventFilters(
     supabase.from("events").select("*")
   )
-    .ilike("locality", "%jaipur%")
+    .or("locality.ilike.%jaipur%")
     .gte("start_date", nowIso)
     .order("start_date", { ascending: true })
     .limit(limit * 4);
 
-  const cityEvents = trimEventSection(
-    sortEventsByLifecycle(dedupeEventsById(cityData || [])),
-    { limit }
-  );
+  combined = combined.concat(cityData || []);
 
-  if (cityEvents.length > 0) return cityEvents;
+  const ranked = sortByLocalityPriority(dedupeEventsById(combined), {
+    exactLocalityId: localityId,
+    nearbyLocalityIds,
+  });
 
-  const { data: fallbackData } = await applyPublicEventFilters(
-    supabase.from("events").select("*")
-  )
-    .gte("start_date", nowIso)
-    .order("start_date", { ascending: true })
-    .limit(limit * 4);
-
-  return trimEventSection(
-    sortEventsByLifecycle(dedupeEventsById(fallbackData || [])),
-    { limit }
-  );
+  return trimEventSection(ranked, { limit });
 }
 
 export async function getPastEventsForLocality(
