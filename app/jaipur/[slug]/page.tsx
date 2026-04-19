@@ -78,15 +78,17 @@ function deriveLocalityTier({
     return "strong";
   }
 
-  if (
-    exactUpcomingCount >= 1 ||
-    exactVenueCount >= 1 ||
-    pastCount >= 1
-  ) {
+  if (exactUpcomingCount >= 1 || exactVenueCount >= 1 || pastCount >= 1) {
     return "developing";
   }
 
   return "thin";
+}
+
+function getTierLabel(tier: LocalityTier) {
+  if (tier === "strong") return "Strong Hub";
+  if (tier === "developing") return "Developing Hub";
+  return "Coverage Seed";
 }
 
 function getEventsSectionCopy({
@@ -159,28 +161,100 @@ function getVenuesSectionCopy({
   };
 }
 
-function getHubIntro({
+function getLocalityAuthorityIntro({
   tier,
   localityName,
-  baseText,
+  zone,
+  municipality,
+  exactUpcomingCount,
+  exactVenueCount,
+  pastCount,
 }: {
   tier: LocalityTier;
   localityName: string;
-  baseText: string;
+  zone?: string | null;
+  municipality?: string | null;
+  exactUpcomingCount: number;
+  exactVenueCount: number;
+  pastCount: number;
 }) {
-  if (tier === "strong") return baseText;
+  const civicContext =
+    zone || municipality
+      ? ` It sits${zone ? ` in the ${zone}` : ""}${
+          municipality ? ` under ${municipality}` : ""
+        } within Jaipur.`
+      : "";
 
-  if (tier === "developing") {
-    return `${baseText} This locality is now evolving into an active Jaipur discovery hub with growing event and venue coverage.`;
+  if (tier === "strong") {
+    return `${localityName} is now one of JaipurCircle’s strongest locality hubs, with meaningful exact event coverage, venue depth, and visible event memory.${civicContext} This page is intended to function as a reliable discovery hub for what is happening in and around ${localityName}, while also helping users navigate related venues, nearby localities, and recurring Jaipur activity.`;
   }
 
-  return `${baseText} This locality is currently in an early coverage phase, and JaipurCircle is progressively enriching it with events, venues, civic facts, and nearby discovery paths.`;
+  if (tier === "developing") {
+    return `${localityName} is an actively developing Jaipur locality hub with growing coverage across events, venues, and local discovery paths.${civicContext} JaipurCircle uses a mix of exact locality inventory and nearby relevant Jaipur discovery to keep this page useful while the locality graph continues to mature.`;
+  }
+
+  return `${localityName} is currently in an early coverage phase on JaipurCircle.${civicContext} This page still matters as part of Jaipur’s full locality map, and it will gradually become richer as exact events, venues, civic detail, and nearby discovery signals continue to accumulate.`;
 }
 
-function getTierLabel(tier: LocalityTier) {
-  if (tier === "strong") return "Strong Hub";
-  if (tier === "developing") return "Developing Hub";
-  return "Coverage Seed";
+function getAuthorityHighlights({
+  tier,
+  exactUpcomingCount,
+  exactVenueCount,
+  pastCount,
+}: {
+  tier: LocalityTier;
+  exactUpcomingCount: number;
+  exactVenueCount: number;
+  pastCount: number;
+}) {
+  if (tier === "strong") {
+    return [
+      `${exactUpcomingCount} exact upcoming event${
+        exactUpcomingCount === 1 ? "" : "s"
+      } currently mapped`,
+      `${exactVenueCount} exact venue${exactVenueCount === 1 ? "" : "s"} contributing to locality strength`,
+      `${pastCount} archived event${pastCount === 1 ? "" : "s"} building locality memory`,
+    ];
+  }
+
+  if (tier === "developing") {
+    return [
+      `${exactUpcomingCount} exact upcoming event${
+        exactUpcomingCount === 1 ? "" : "s"
+      } currently mapped`,
+      `${exactVenueCount} exact venue${exactVenueCount === 1 ? "" : "s"} currently linked`,
+      `${pastCount} archived event${pastCount === 1 ? "" : "s"} supporting locality history`,
+    ];
+  }
+
+  return [
+    "Full locality coverage track retained even while this page is still thin",
+    "Nearby events and venues help keep discovery useful in early phases",
+    "This locality is positioned for progressive enrichment over time",
+  ];
+}
+
+function getStrongHubEditorialBlock({
+  localityName,
+  exactUpcomingCount,
+  exactVenueCount,
+  pastCount,
+}: {
+  localityName: string;
+  exactUpcomingCount: number;
+  exactVenueCount: number;
+  pastCount: number;
+}) {
+  return {
+    heading: `${localityName} as a Jaipur discovery hub`,
+    body: `${localityName} is no longer just a placeholder locality page. It now has enough exact inventory to behave like a real hyperlocal discovery node, with ${exactUpcomingCount} exact upcoming event${
+      exactUpcomingCount === 1 ? "" : "s"
+    }, ${exactVenueCount} exact venue${
+      exactVenueCount === 1 ? "" : "s"
+    }, and ${pastCount} archived event${
+      pastCount === 1 ? "" : "s"
+    } contributing to local memory. The next goal for this hub is quality compounding: stronger venue context, richer locality comparisons, more authoritative civic detail, and tighter event curation over time.`,
+  };
 }
 
 export default async function LocalityPage({
@@ -260,20 +334,37 @@ export default async function LocalityPage({
     exactVenueCount,
   });
 
+  const authorityIntro = getLocalityAuthorityIntro({
+    tier,
+    localityName: locality.name,
+    zone: locality.zone,
+    municipality: locality.municipality,
+    exactUpcomingCount,
+    exactVenueCount,
+    pastCount: displayedPastCount,
+  });
+
+  const authorityHighlights = getAuthorityHighlights({
+    tier,
+    exactUpcomingCount,
+    exactVenueCount,
+    pastCount: displayedPastCount,
+  });
+
+  const strongHubBlock =
+    tier === "strong"
+      ? getStrongHubEditorialBlock({
+          localityName: locality.name,
+          exactUpcomingCount,
+          exactVenueCount,
+          pastCount: displayedPastCount,
+        })
+      : null;
+
   const baseIntro =
     locality.description ||
     locality.seo_blurb ||
     `${locality.name} is one of Jaipur’s important localities. Explore what is happening here, discover venues, and browse upcoming and past events connected to this area.`;
-
-  const aboutText = getHubIntro({
-    tier,
-    localityName: locality.name,
-    baseText:
-      locality.seo_content ||
-      locality.description ||
-      locality.seo_blurb ||
-      `${locality.name} is a Jaipur locality page on JaipurCircle designed to help users discover events, venues, and local activity. This hub is intended to become the search-first landing page for area-specific discovery, local experiences, and neighborhood relevance in Jaipur.`,
-  });
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-10">
@@ -353,7 +444,7 @@ export default async function LocalityPage({
           <h2 className="text-xl font-semibold text-gray-900">
             About {locality.name}, Jaipur
           </h2>
-          <p className="mt-3 text-gray-700 leading-7">{aboutText}</p>
+          <p className="mt-3 text-gray-700 leading-7">{authorityIntro}</p>
         </div>
 
         <div className="rounded-2xl border border-gray-200 bg-white p-6">
@@ -404,6 +495,34 @@ export default async function LocalityPage({
           </div>
         </div>
       </section>
+
+      <section className="mt-8 rounded-2xl border border-gray-200 bg-white p-6">
+        <h2 className="text-xl font-semibold text-gray-900">
+          {locality.name} authority signals
+        </h2>
+        <p className="mt-2 text-sm text-gray-600">
+          These signals indicate how this locality is maturing inside JaipurCircle’s city-wide discovery graph.
+        </p>
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {authorityHighlights.map((item, index) => (
+            <div
+              key={`${locality.slug}-authority-${index}`}
+              className="rounded-xl border border-gray-100 p-4 text-sm text-gray-700"
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {strongHubBlock ? (
+        <section className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/40 p-6">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {strongHubBlock.heading}
+          </h2>
+          <p className="mt-3 text-gray-700 leading-7">{strongHubBlock.body}</p>
+        </section>
+      ) : null}
 
       <LocalityDifferentiation
         name={locality.name}
