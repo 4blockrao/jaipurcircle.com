@@ -2,12 +2,14 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 
 export async function GET() {
   const supabase = createServerSupabaseClient();
-  const base = 'https://jaipurcircle.com';
+  const base = 'https://www.jaipurcircle.com';
 
   const { data, error } = await supabase
     .from('localities')
-    .select('slug, updated_at')
+    .select('slug, updated_at, should_index, is_indexable, is_placeholder')
     .eq('should_index', true)
+    .eq('is_indexable', true)
+    .eq('is_placeholder', false)
     .limit(5000);
 
   if (error) {
