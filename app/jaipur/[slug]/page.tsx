@@ -1,4 +1,5 @@
 import LocalityDifferentiation from "@/components/locality/LocalityDifferentiation";
+import LocalityDifferentiation from "@/components/locality/LocalityDifferentiation";
 import LocalityIntentMatrix from "@/components/locality/LocalityIntentMatrix";
 import CivicFacts from "@/components/locality/CivicFacts";
 import NearbyLocalities from "@/components/locality/NearbyLocalities";
@@ -203,6 +204,14 @@ export default async function LocalityPage({
           </div>
         </div>
       </section>
+
+
+      <LocalityDifferentiation
+        name={locality.name}
+        bestFor={locality.best_for}
+        vibeTags={locality.vibe_tags}
+        knownFor={locality.known_for}
+      />
 
       <section className="mt-10 rounded-2xl border border-gray-200 bg-white p-6">
         <h2 className="text-xl font-semibold text-gray-900">
