@@ -15,11 +15,11 @@ function uniqueIds(values: any[]) {
   return Array.from(new Set((values || []).filter(Boolean)));
 }
 
-async function getNearbyLocalityIds(
+async function getNearbyLocalityRows(
   supabase: any,
   localityId?: string | null,
   limit = 5
-): Promise<string[]> {
+): Promise<Array<{ locality_id: string; distance_km?: number | null }>> {
   if (!localityId) return [];
 
   const { data } = await supabase.rpc("get_nearby_locality_ids", {
@@ -27,39 +27,104 @@ async function getNearbyLocalityIds(
     p_limit: limit,
   });
 
-  return uniqueIds((data || []).map((row: any) => row.locality_id));
+  return (data || []).filter((row: any) => !!row?.locality_id);
+}
+
+async function getNearbyLocalityIds(
+  supabase: any,
+  localityId?: string | null,
+  limit = 5
+): Promise<string[]> {
+  const rows = await getNearbyLocalityRows(supabase, localityId, limit);
+  return uniqueIds(rows.map((row) => row.locality_id));
+}
+
+function buildNearbyDistanceMap(
+  rows: Array<{ locality_id: string; distance_km?: number | null }>
+) {
+  const map = new Map<string, number>();
+  for (const row of rows || []) {
+    if (!row?.locality_id) continue;
+    map.set(row.locality_id, Number(row.distance_km ?? 999999));
+  }
+  return map;
+}
+
+function normalizeLocalitySlugText(localitySlug?: string | null) {
+  if (!localitySlug) return null;
+  return localitySlug.replace(/-/g, " ").trim().toLowerCase();
+}
+
+function normalizeEventLocalityText(value?: string | null) {
+  return String(value || "")
+    .replace(/-/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function eventStartTs(event: any) {
+  const raw = event?.start_date || event?.start_time || event?.published_at;
+  const ts = raw ? new Date(raw).getTime() : 0;
+  return Number.isFinite(ts) ? ts : 0;
 }
 
 function sortByLocalityPriority(
   events: any[],
   {
     exactLocalityId,
-    nearbyLocalityIds = [],
+    localitySlug,
+    nearbyRows = [],
   }: {
     exactLocalityId?: string | null;
-    nearbyLocalityIds?: string[];
+    localitySlug?: string | null;
+    nearbyRows?: Array<{ locality_id: string; distance_km?: number | null }>;
   }
 ) {
-  const nearbySet = new Set(nearbyLocalityIds || []);
+  const normalizedSlug = normalizeLocalitySlugText(localitySlug);
+  const nearbyDistanceMap = buildNearbyDistanceMap(nearbyRows);
 
-  const score = (event: any) => {
+  const bucket = (event: any) => {
     if (exactLocalityId && event?.locality_id === exactLocalityId) return 1;
-    if (event?.locality_id && nearbySet.has(event.locality_id)) return 2;
-    if (String(event?.locality || "").toLowerCase() === "jaipur") return 4;
-    return 3;
+
+    const normalizedEventLocality = normalizeEventLocalityText(event?.locality);
+
+    if (
+      normalizedSlug &&
+      normalizedEventLocality &&
+      normalizedEventLocality === normalizedSlug
+    ) {
+      return 2;
+    }
+
+    if (event?.locality_id && nearbyDistanceMap.has(event.locality_id)) return 3;
+
+    if (normalizedEventLocality === "jaipur") return 5;
+
+    if (normalizedEventLocality) return 4;
+
+    return 6;
+  };
+
+  const distanceScore = (event: any) => {
+    if (event?.locality_id && nearbyDistanceMap.has(event.locality_id)) {
+      return nearbyDistanceMap.get(event.locality_id) ?? 999999;
+    }
+    return 999999;
   };
 
   return [...(events || [])].sort((a: any, b: any) => {
-    const scoreDiff = score(a) - score(b);
-    if (scoreDiff !== 0) return scoreDiff;
+    const bucketDiff = bucket(a) - bucket(b);
+    if (bucketDiff !== 0) return bucketDiff;
 
-    const aDate = new Date(a?.start_date || a?.start_time || 0).getTime();
-    const bDate = new Date(b?.start_date || b?.start_time || 0).getTime();
+    const distanceDiff = distanceScore(a) - distanceScore(b);
+    if (distanceDiff !== 0) return distanceDiff;
 
-    if (aDate && bDate) return aDate - bDate;
-    if (aDate) return -1;
-    if (bDate) return 1;
-    return 0;
+    const dateDiff = eventStartTs(a) - eventStartTs(b);
+    if (dateDiff !== 0) return dateDiff;
+
+    const aTitle = String(a?.title || "");
+    const bTitle = String(b?.title || "");
+    return aTitle.localeCompare(bTitle);
   });
 }
 
@@ -79,8 +144,9 @@ export async function getEventsByLocality(
     excludeIds?: string[];
   }
 ) {
-  const normalized = localitySlug?.replace(/-/g, " ");
-  const nearbyLocalityIds = await getNearbyLocalityIds(supabase, localityId, 5);
+  const normalized = normalizeLocalitySlugText(localitySlug);
+  const nearbyRows = await getNearbyLocalityRows(supabase, localityId, 5);
+  const nearbyLocalityIds = uniqueIds(nearbyRows.map((row) => row.locality_id));
 
   let combined: any[] = [];
 
@@ -117,7 +183,7 @@ export async function getEventsByLocality(
   const { data: cityEvents } = await applyPublicEventFilters(
     supabase.from("events").select("*").neq("id", eventId)
   )
-    .or("locality.ilike.%jaipur%")
+    .ilike("locality", "%jaipur%")
     .limit(limit * 4);
 
   combined = combined.concat(cityEvents || []);
@@ -125,7 +191,8 @@ export async function getEventsByLocality(
   return trimEventSection(
     sortByLocalityPriority(dedupeEventsById(combined), {
       exactLocalityId: localityId,
-      nearbyLocalityIds,
+      localitySlug,
+      nearbyRows,
     }),
     {
       limit,
@@ -165,6 +232,7 @@ export async function getEventsByVenue(
   }
 
   const { data } = await query.limit(limit * 4);
+
   return trimEventSection(sortEventsByLifecycle(dedupeEventsById(data || [])), {
     limit,
     excludeIds,
@@ -228,8 +296,9 @@ export async function getUpcomingEventsForLocality(
   }
 ) {
   const nowIso = new Date().toISOString();
-  const normalized = localitySlug?.replace(/-/g, " ");
-  const nearbyLocalityIds = await getNearbyLocalityIds(supabase, localityId, 5);
+  const normalized = normalizeLocalitySlugText(localitySlug);
+  const nearbyRows = await getNearbyLocalityRows(supabase, localityId, 5);
+  const nearbyLocalityIds = uniqueIds(nearbyRows.map((row) => row.locality_id));
 
   let combined: any[] = [];
 
@@ -240,9 +309,21 @@ export async function getUpcomingEventsForLocality(
       .eq("locality_id", localityId)
       .gte("start_date", nowIso)
       .order("start_date", { ascending: true })
-      .limit(limit * 4);
+      .limit(limit * 6);
 
     combined = combined.concat(exactData || []);
+  }
+
+  if (normalized) {
+    const { data: exactSlugData } = await applyPublicEventFilters(
+      supabase.from("events").select("*")
+    )
+      .ilike("locality", `%${normalized}%`)
+      .gte("start_date", nowIso)
+      .order("start_date", { ascending: true })
+      .limit(limit * 6);
+
+    combined = combined.concat(exactSlugData || []);
   }
 
   if (nearbyLocalityIds.length > 0) {
@@ -252,36 +333,27 @@ export async function getUpcomingEventsForLocality(
       .in("locality_id", nearbyLocalityIds)
       .gte("start_date", nowIso)
       .order("start_date", { ascending: true })
-      .limit(limit * 4);
+      .limit(limit * 8);
 
     combined = combined.concat(nearbyData || []);
   }
 
-  if (normalized) {
-    const { data: slugData } = await applyPublicEventFilters(
+  if (combined.length < limit * 2) {
+    const { data: cityData } = await applyPublicEventFilters(
       supabase.from("events").select("*")
     )
-      .ilike("locality", `%${normalized}%`)
+      .ilike("locality", "%jaipur%")
       .gte("start_date", nowIso)
       .order("start_date", { ascending: true })
-      .limit(limit * 4);
+      .limit(limit * 10);
 
-    combined = combined.concat(slugData || []);
+    combined = combined.concat(cityData || []);
   }
-
-  const { data: cityData } = await applyPublicEventFilters(
-    supabase.from("events").select("*")
-  )
-    .or("locality.ilike.%jaipur%")
-    .gte("start_date", nowIso)
-    .order("start_date", { ascending: true })
-    .limit(limit * 4);
-
-  combined = combined.concat(cityData || []);
 
   const ranked = sortByLocalityPriority(dedupeEventsById(combined), {
     exactLocalityId: localityId,
-    nearbyLocalityIds,
+    localitySlug,
+    nearbyRows,
   });
 
   return trimEventSection(ranked, { limit });
@@ -305,7 +377,7 @@ export async function getPastEventsForLocality(
     .eq("locality_id", localityId)
     .lt("start_date", new Date().toISOString())
     .order("start_date", { ascending: false })
-    .limit(limit * 2);
+    .limit(limit * 3);
 
   return trimEventSection(dedupeEventsById(data || []), { limit });
 }
@@ -322,7 +394,7 @@ export async function getVenuesForLocality(
     limit?: number;
   }
 ) {
-  const normalized = localitySlug?.replace(/-/g, " ");
+  const normalized = normalizeLocalitySlugText(localitySlug);
 
   if (localityId) {
     const { data: strictVenues } = await supabase
@@ -336,11 +408,25 @@ export async function getVenuesForLocality(
     }
   }
 
+  const nearbyIds = await getNearbyLocalityIds(supabase, localityId, 5);
+
+  if (nearbyIds.length > 0) {
+    const { data: nearbyVenues } = await supabase
+      .from("venues")
+      .select("*")
+      .in("locality_id", nearbyIds)
+      .limit(limit * 2);
+
+    if (nearbyVenues && nearbyVenues.length > 0) {
+      return nearbyVenues.slice(0, limit);
+    }
+  }
+
   if (normalized) {
     const { data: slugVenues } = await supabase
       .from("venues")
       .select("*")
-      .ilike("name", `%${normalized}%`)
+      .or(`name.ilike.%${normalized}%,description.ilike.%${normalized}%`)
       .limit(limit);
 
     if (slugVenues && slugVenues.length > 0) {
@@ -405,7 +491,7 @@ export async function getUpcomingEventsForVenue(
   const { data } = await query
     .gte("start_date", new Date().toISOString())
     .order("start_date", { ascending: true })
-    .limit(limit * 2);
+    .limit(limit * 3);
 
   return trimEventSection(dedupeEventsById(data || []), { limit });
 }
@@ -437,7 +523,7 @@ export async function getPastEventsForVenue(
   const { data } = await query
     .lt("start_date", new Date().toISOString())
     .order("start_date", { ascending: false })
-    .limit(limit * 2);
+    .limit(limit * 3);
 
   return trimEventSection(dedupeEventsById(data || []), { limit });
 }
@@ -470,7 +556,7 @@ export async function getUpcomingEventsForArtist(
   )
     .gte("start_date", new Date().toISOString())
     .order("start_date", { ascending: true })
-    .limit(limit * 2);
+    .limit(limit * 3);
 
   return trimEventSection(dedupeEventsById(data || []), { limit });
 }
@@ -503,7 +589,7 @@ export async function getPastEventsForArtist(
   )
     .lt("start_date", new Date().toISOString())
     .order("start_date", { ascending: false })
-    .limit(limit * 2);
+    .limit(limit * 3);
 
   return trimEventSection(dedupeEventsById(data || []), { limit });
 }
