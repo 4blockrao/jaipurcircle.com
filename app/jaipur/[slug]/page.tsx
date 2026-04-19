@@ -23,17 +23,22 @@ export async function generateMetadata(
 
   if (!locality) {
     return {
-      title: "Locality not found | JaipurCircle",
-    };
-  }
+    title:
+      locality.meta_title ||
+      `${locality.name} Jaipur – Events, Venues & Things to Do`,
 
-  return {
-    title: locality.meta_title || `${locality.name}, Jaipur | JaipurCircle`,
     description:
       locality.meta_description ||
-      `Explore events, venues, and local discovery for ${locality.name}, Jaipur on JaipurCircle.`,
+      `Discover events, venues, and things to do in ${locality.name}, Jaipur. Explore upcoming experiences and local discovery.`,
+
     alternates: {
       canonical: `https://www.jaipurcircle.com/jaipur/${slug}`,
+    },
+
+    openGraph: {
+      title: locality.meta_title,
+      description: locality.meta_description,
+      url: `https://www.jaipurcircle.com/jaipur/${slug}`,
     },
   };
 }
@@ -52,7 +57,7 @@ export default async function LocalityPage({
     .eq("slug", slug)
     .single();
 
-  if (!locality || error) return notFound();
+  if (!locality || error || !locality.should_index) return notFound();
 
   const [upcomingEvents, pastEvents, venues] = await Promise.all([
     getUpcomingEventsForLocality(supabase, {
@@ -108,6 +113,24 @@ export default async function LocalityPage({
           ) : null}
         </div>
       </header>
+      <section className="mt-8 max-w-3xl text-sm text-gray-600 leading-7">
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">
+          About {locality.name}, Jaipur
+        </h2>
+        <p>
+          {locality.name} is a key locality in Jaipur with active venues,
+          local experiences, and ongoing events. This page helps you discover
+          what’s happening in the area, explore venues, and browse both
+          upcoming and past events.
+        </p>
+      </section>
+
+      <div className="mt-6 flex flex-wrap gap-3">
+        <a href={`/jaipur/${locality.slug}/events`} className="text-blue-600 text-sm">
+          View all events in {locality.name} →
+        </a>
+      </div>
+
 
       <EventSectionGrid
         title={`Upcoming events in ${locality.name}`}
