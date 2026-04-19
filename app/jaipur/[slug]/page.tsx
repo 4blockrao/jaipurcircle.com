@@ -257,7 +257,21 @@ export default async function LocalityPage({
           />
         ) : (
           <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-            No upcoming events are currently linked to {locality.name}. Explore broader Jaipur events or nearby localities as this page grows.
+            <p>No upcoming events are currently linked to {locality.name}.</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a
+                href="/events"
+                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+              >
+                Explore all Jaipur events →
+              </a>
+              <a
+                href="/jaipur"
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Browse other Jaipur localities →
+              </a>
+            </div>
           </div>
         )}
       </section>
@@ -283,7 +297,21 @@ export default async function LocalityPage({
           />
         ) : (
           <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-            No past event archive is currently available for {locality.name}.
+            <p>No past event archive is currently available for {locality.name}.</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a
+                href={`/jaipur/${locality.slug}/events`}
+                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+              >
+                Check locality events →
+              </a>
+              <a
+                href="/events"
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Explore Jaipur event archive →
+              </a>
+            </div>
           </div>
         )}
       </section>
@@ -316,7 +344,21 @@ export default async function LocalityPage({
           </div>
         ) : (
           <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-            No venue cluster is available for this locality yet.
+            <p>No venue cluster is available for {locality.name} yet.</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a
+                href="/venues"
+                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+              >
+                Explore Jaipur venues →
+              </a>
+              <a
+                href="/jaipur"
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Browse other localities →
+              </a>
+            </div>
           </div>
         )}
       </section>
