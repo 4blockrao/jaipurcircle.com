@@ -27,18 +27,57 @@ export async function getEventsByLocality(
     excludeIds?: string[];
   }
 ) {
-  if (!localityId) return [];
+  const normalized = localitySlug?.replace(/-/g, " ");
 
-  const { data } = await applyPublicEventFilters(
+  if (localityId) {
+    const { data: byId } = await applyPublicEventFilters(
+      supabase.from("events").select("*").neq("id", eventId)
+    )
+      .eq("locality_id", localityId)
+      .limit(limit * 4);
+
+    const idEvents = trimEventSection(
+      sortEventsByLifecycle(dedupeEventsById(byId || [])),
+      {
+        limit,
+        excludeIds,
+      }
+    );
+
+    if (idEvents.length > 0) return idEvents;
+  }
+
+  if (normalized) {
+    const { data: bySlug } = await applyPublicEventFilters(
+      supabase.from("events").select("*").neq("id", eventId)
+    )
+      .ilike("locality", `%${normalized}%`)
+      .limit(limit * 4);
+
+    const slugEvents = trimEventSection(
+      sortEventsByLifecycle(dedupeEventsById(bySlug || [])),
+      {
+        limit,
+        excludeIds,
+      }
+    );
+
+    if (slugEvents.length > 0) return slugEvents;
+  }
+
+  const { data: cityEvents } = await applyPublicEventFilters(
     supabase.from("events").select("*").neq("id", eventId)
   )
-    .eq("locality_id", localityId)
+    .ilike("locality", "%jaipur%")
     .limit(limit * 4);
 
-  return trimEventSection(sortEventsByLifecycle(dedupeEventsById(data || [])), {
-    limit,
-    excludeIds,
-  });
+  return trimEventSection(
+    sortEventsByLifecycle(dedupeEventsById(cityEvents || [])),
+    {
+      limit,
+      excludeIds,
+    }
+  );
 }
 
 export async function getEventsByVenue(
@@ -132,6 +171,7 @@ export async function getUpcomingEventsForLocality(
   }
 ) {
   const nowIso = new Date().toISOString();
+  const normalized = localitySlug?.replace(/-/g, " ");
 
   if (localityId) {
     const { data: strictData } = await applyPublicEventFilters(
@@ -140,39 +180,59 @@ export async function getUpcomingEventsForLocality(
       .eq("locality_id", localityId)
       .gte("start_date", nowIso)
       .order("start_date", { ascending: true })
-      .limit(limit * 2);
+      .limit(limit * 4);
 
-    const strictEvents = trimEventSection(dedupeEventsById(strictData || []), {
-      limit,
-    });
+    const strictEvents = trimEventSection(
+      sortEventsByLifecycle(dedupeEventsById(strictData || [])),
+      { limit }
+    );
 
     if (strictEvents.length > 0) return strictEvents;
   }
 
-  if (localitySlug) {
-    const { data: fallbackData } = await applyPublicEventFilters(
+  if (normalized) {
+    const { data: slugData } = await applyPublicEventFilters(
       supabase.from("events").select("*")
     )
-      .ilike("locality", `%${localitySlug}%`)
+      .ilike("locality", `%${normalized}%`)
       .gte("start_date", nowIso)
       .order("start_date", { ascending: true })
-      .limit(limit * 2);
+      .limit(limit * 4);
 
-    const fallbackEvents = trimEventSection(dedupeEventsById(fallbackData || []), {
-      limit,
-    });
+    const slugEvents = trimEventSection(
+      sortEventsByLifecycle(dedupeEventsById(slugData || [])),
+      { limit }
+    );
 
-    if (fallbackEvents.length > 0) return fallbackEvents;
+    if (slugEvents.length > 0) return slugEvents;
   }
 
-  const { data: jaipurData } = await applyPublicEventFilters(
+  const { data: cityData } = await applyPublicEventFilters(
+    supabase.from("events").select("*")
+  )
+    .ilike("locality", "%jaipur%")
+    .gte("start_date", nowIso)
+    .order("start_date", { ascending: true })
+    .limit(limit * 4);
+
+  const cityEvents = trimEventSection(
+    sortEventsByLifecycle(dedupeEventsById(cityData || [])),
+    { limit }
+  );
+
+  if (cityEvents.length > 0) return cityEvents;
+
+  const { data: fallbackData } = await applyPublicEventFilters(
     supabase.from("events").select("*")
   )
     .gte("start_date", nowIso)
     .order("start_date", { ascending: true })
-    .limit(limit * 2);
+    .limit(limit * 4);
 
-  return trimEventSection(dedupeEventsById(jaipurData || []), { limit });
+  return trimEventSection(
+    sortEventsByLifecycle(dedupeEventsById(fallbackData || [])),
+    { limit }
+  );
 }
 
 export async function getPastEventsForLocality(
@@ -210,15 +270,60 @@ export async function getVenuesForLocality(
     limit?: number;
   }
 ) {
-  if (!localityId) return [];
+  const normalized = localitySlug?.replace(/-/g, " ");
 
-  const { data } = await supabase
+  if (localityId) {
+    const { data: strictVenues } = await supabase
+      .from("venues")
+      .select("*")
+      .eq("locality_id", localityId)
+      .limit(limit);
+
+    if (strictVenues && strictVenues.length > 0) {
+      return strictVenues;
+    }
+  }
+
+  if (normalized) {
+    const { data: slugVenues } = await supabase
+      .from("venues")
+      .select("*")
+      .ilike("name", `%${normalized}%`)
+      .limit(limit);
+
+    if (slugVenues && slugVenues.length > 0) {
+      return slugVenues;
+    }
+  }
+
+  const events = await getUpcomingEventsForLocality(supabase, {
+    localityId,
+    localitySlug,
+    limit: Math.max(limit, 8),
+  });
+
+  const venueIds = Array.from(
+    new Set((events || []).map((e: any) => e?.venue_id).filter(Boolean))
+  );
+
+  if (venueIds.length > 0) {
+    const { data: eventVenues } = await supabase
+      .from("venues")
+      .select("*")
+      .in("id", venueIds)
+      .limit(limit);
+
+    if (eventVenues && eventVenues.length > 0) {
+      return eventVenues;
+    }
+  }
+
+  const { data: fallbackVenues } = await supabase
     .from("venues")
     .select("*")
-    .eq("locality_id", localityId)
     .limit(limit);
 
-  return data || [];
+  return fallbackVenues || [];
 }
 
 export async function getUpcomingEventsForVenue(
