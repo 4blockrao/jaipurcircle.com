@@ -16,11 +16,13 @@ export async function getEventsByLocality(
   {
     eventId,
     localityId,
+    localitySlug,
     limit = 6,
     excludeIds = [],
   }: {
     eventId: string;
     localityId?: string | null;
+    localitySlug?: string | null;
     limit?: number;
     excludeIds?: string[];
   }
@@ -200,9 +202,11 @@ export async function getVenuesForLocality(
   supabase: any,
   {
     localityId,
+    localitySlug,
     limit = 6,
   }: {
     localityId?: string | null;
+    localitySlug?: string | null;
     limit?: number;
   }
 ) {
