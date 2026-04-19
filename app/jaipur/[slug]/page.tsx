@@ -14,6 +14,8 @@ import LocalityDifferentiation from "@/components/locality/LocalityDifferentiati
 
 export const dynamic = "force-dynamic";
 
+type LocalityTier = "strong" | "developing" | "thin";
+
 export async function generateMetadata(
   props: { params: Promise<{ slug: string }> }
 ) {
@@ -56,6 +58,129 @@ export async function generateMetadata(
 
 function countItems(items: any[] | null | undefined) {
   return Array.isArray(items) ? items.length : 0;
+}
+
+function deriveLocalityTier({
+  exactUpcomingCount,
+  pastCount,
+  exactVenueCount,
+}: {
+  exactUpcomingCount: number;
+  pastCount: number;
+  exactVenueCount: number;
+}): LocalityTier {
+  if (
+    exactUpcomingCount >= 3 ||
+    exactVenueCount >= 4 ||
+    (exactUpcomingCount >= 2 && exactVenueCount >= 2) ||
+    (pastCount >= 6 && exactVenueCount >= 2)
+  ) {
+    return "strong";
+  }
+
+  if (
+    exactUpcomingCount >= 1 ||
+    exactVenueCount >= 1 ||
+    pastCount >= 1
+  ) {
+    return "developing";
+  }
+
+  return "thin";
+}
+
+function getEventsSectionCopy({
+  tier,
+  localityName,
+  exactUpcomingCount,
+}: {
+  tier: LocalityTier;
+  localityName: string;
+  exactUpcomingCount: number;
+}) {
+  if (tier === "strong") {
+    return {
+      heading: `Upcoming events in ${localityName}`,
+      description: `Discover upcoming events, experiences, and gatherings directly connected to ${localityName}, Jaipur.`,
+      emptyText: `No upcoming events are currently linked to ${localityName}.`,
+    };
+  }
+
+  if (tier === "developing") {
+    return {
+      heading: `Popular upcoming events near ${localityName}`,
+      description:
+        exactUpcomingCount > 0
+          ? `${localityName} already has some exact event coverage, and this section also expands discovery with nearby relevant Jaipur events.`
+          : `There may not be enough exact locality-tagged events yet, so this section shows relevant upcoming Jaipur events around and beyond ${localityName}.`,
+      emptyText: `No relevant upcoming events were found near ${localityName} right now.`,
+    };
+  }
+
+  return {
+    heading: `Explore nearby events from ${localityName}`,
+    description: `${localityName} is still building exact event density, so JaipurCircle surfaces nearby and city-wide events to keep this locality page useful.`,
+    emptyText: `No nearby or city-wide upcoming events are available from ${localityName} right now.`,
+  };
+}
+
+function getVenuesSectionCopy({
+  tier,
+  localityName,
+  exactVenueCount,
+}: {
+  tier: LocalityTier;
+  localityName: string;
+  exactVenueCount: number;
+}) {
+  if (tier === "strong") {
+    return {
+      heading: `Popular venues in ${localityName}`,
+      description: `Explore venues connected to this locality and use them as discovery hubs for events in Jaipur.`,
+      emptyText: `No venue cluster is available for ${localityName} yet.`,
+    };
+  }
+
+  if (tier === "developing") {
+    return {
+      heading: `Popular venues around ${localityName}`,
+      description:
+        exactVenueCount > 0
+          ? `${localityName} already has some exact venue coverage, and this section expands the cluster with nearby useful venue discovery.`
+          : `Exact venue coverage for ${localityName} is still growing, so this section shows nearby or broader Jaipur venue discovery.`,
+      emptyText: `No useful venue cluster is available around ${localityName} yet.`,
+    };
+  }
+
+  return {
+    heading: `Useful venues near ${localityName}`,
+    description: `${localityName} is still a thin locality node, so JaipurCircle uses nearby venue discovery to keep this page navigable and useful.`,
+    emptyText: `No nearby venue discovery is available from ${localityName} yet.`,
+  };
+}
+
+function getHubIntro({
+  tier,
+  localityName,
+  baseText,
+}: {
+  tier: LocalityTier;
+  localityName: string;
+  baseText: string;
+}) {
+  if (tier === "strong") return baseText;
+
+  if (tier === "developing") {
+    return `${baseText} This locality is now evolving into an active Jaipur discovery hub with growing event and venue coverage.`;
+  }
+
+  return `${baseText} This locality is currently in an early coverage phase, and JaipurCircle is progressively enriching it with events, venues, civic facts, and nearby discovery paths.`;
+}
+
+function getTierLabel(tier: LocalityTier) {
+  if (tier === "strong") return "Strong Hub";
+  if (tier === "developing") return "Developing Hub";
+  return "Coverage Seed";
 }
 
 export default async function LocalityPage({
@@ -117,31 +242,38 @@ export default async function LocalityPage({
   const exactUpcomingCount = exactUpcomingCountRes.count || 0;
   const exactVenueCount = exactVenueCountRes.count || 0;
 
-  const hasStrongExactEvents = exactUpcomingCount >= 2;
-  const hasAnyExactEvents = exactUpcomingCount > 0;
-  const hasStrongExactVenues = exactVenueCount >= 2;
+  const tier = deriveLocalityTier({
+    exactUpcomingCount,
+    pastCount: displayedPastCount,
+    exactVenueCount,
+  });
 
-  const eventsHeading = hasStrongExactEvents
-    ? `Upcoming events in ${locality.name}`
-    : `Upcoming events around ${locality.name}`;
+  const eventsSection = getEventsSectionCopy({
+    tier,
+    localityName: locality.name,
+    exactUpcomingCount,
+  });
 
-  const eventsDescription = hasStrongExactEvents
-    ? `Discover upcoming events, experiences, and gatherings directly connected to ${locality.name}, Jaipur.`
-    : hasAnyExactEvents
-      ? `This page includes both exact and nearby upcoming events so ${locality.name} never feels empty while locality coverage continues to improve.`
-      : `Exact locality-tagged upcoming events are still growing, so this page shows relevant upcoming events around ${locality.name} and across Jaipur where appropriate.`;
+  const venuesSection = getVenuesSectionCopy({
+    tier,
+    localityName: locality.name,
+    exactVenueCount,
+  });
 
-  const eventsEmptyText = hasStrongExactEvents
-    ? `No upcoming events are currently linked to ${locality.name}.`
-    : `No relevant upcoming events were found around ${locality.name} right now.`;
+  const baseIntro =
+    locality.description ||
+    locality.seo_blurb ||
+    `${locality.name} is one of Jaipur’s important localities. Explore what is happening here, discover venues, and browse upcoming and past events connected to this area.`;
 
-  const venuesHeading = hasStrongExactVenues
-    ? `Popular venues in ${locality.name}`
-    : `Popular venues around ${locality.name}`;
-
-  const venuesDescription = hasStrongExactVenues
-    ? `Explore venues connected to this locality and use them as discovery hubs for events in Jaipur.`
-    : `Exact venue coverage for ${locality.name} is still growing, so this section shows relevant venues around this locality and across Jaipur where useful.`;
+  const aboutText = getHubIntro({
+    tier,
+    localityName: locality.name,
+    baseText:
+      locality.seo_content ||
+      locality.description ||
+      locality.seo_blurb ||
+      `${locality.name} is a Jaipur locality page on JaipurCircle designed to help users discover events, venues, and local activity. This hub is intended to become the search-first landing page for area-specific discovery, local experiences, and neighborhood relevance in Jaipur.`,
+  });
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-10">
@@ -162,15 +294,14 @@ export default async function LocalityPage({
           {locality.h1_override || `${locality.name}, Jaipur`}
         </h1>
 
-        <p className="mt-4 max-w-3xl text-gray-700 leading-7">
-          {locality.description ||
-            locality.seo_blurb ||
-            `${locality.name} is one of Jaipur’s important localities. Explore what is happening here, discover venues, and browse upcoming and past events connected to this area.`}
-        </p>
+        <p className="mt-4 max-w-3xl text-gray-700 leading-7">{baseIntro}</p>
 
         <div className="mt-5 flex flex-wrap gap-3 text-sm">
           <span className="rounded-full bg-gray-100 px-4 py-2">
             Locality: {locality.name}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Tier: {getTierLabel(tier)}
           </span>
           {locality.zone ? (
             <span className="rounded-full bg-gray-100 px-4 py-2">
@@ -222,12 +353,7 @@ export default async function LocalityPage({
           <h2 className="text-xl font-semibold text-gray-900">
             About {locality.name}, Jaipur
           </h2>
-          <p className="mt-3 text-gray-700 leading-7">
-            {locality.seo_content ||
-              locality.description ||
-              locality.seo_blurb ||
-              `${locality.name} is a Jaipur locality page on JaipurCircle designed to help users discover events, venues, and local activity. This hub is intended to become the search-first landing page for area-specific discovery, local experiences, and neighborhood relevance in Jaipur.`}
-          </p>
+          <p className="mt-3 text-gray-700 leading-7">{aboutText}</p>
         </div>
 
         <div className="rounded-2xl border border-gray-200 bg-white p-6">
@@ -235,6 +361,10 @@ export default async function LocalityPage({
             Locality snapshot
           </h2>
           <div className="mt-4 space-y-3 text-sm text-gray-700">
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Tier</span>
+              <span className="text-right font-medium">{getTierLabel(tier)}</span>
+            </div>
             <div className="flex justify-between gap-4">
               <span className="text-gray-500">Zone</span>
               <span className="text-right font-medium">
@@ -338,9 +468,11 @@ export default async function LocalityPage({
         <div className="flex items-end justify-between gap-4">
           <div>
             <h2 className="text-2xl font-semibold text-gray-900">
-              {eventsHeading}
+              {eventsSection.heading}
             </h2>
-            <p className="mt-2 text-sm text-gray-600">{eventsDescription}</p>
+            <p className="mt-2 text-sm text-gray-600">
+              {eventsSection.description}
+            </p>
           </div>
           <a
             href={`/jaipur/${locality.slug}/events`}
@@ -350,7 +482,7 @@ export default async function LocalityPage({
           </a>
         </div>
 
-        {(upcomingEvents || []).length > 0 ? (
+        {displayedUpcomingCount > 0 ? (
           <LocalityEventGrid
             title=""
             description=""
@@ -361,7 +493,7 @@ export default async function LocalityPage({
           />
         ) : (
           <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-            <p>{eventsEmptyText}</p>
+            <p>{eventsSection.emptyText}</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <a
                 href="/events"
@@ -393,7 +525,7 @@ export default async function LocalityPage({
           </div>
         </div>
 
-        {(pastEvents || []).length > 0 ? (
+        {displayedPastCount > 0 ? (
           <LocalityEventGrid
             title=""
             description=""
@@ -424,10 +556,10 @@ export default async function LocalityPage({
       </section>
 
       <section className="mt-12">
-        <h2 className="text-xl font-semibold">{venuesHeading}</h2>
-        <p className="mt-2 text-sm text-gray-600">{venuesDescription}</p>
+        <h2 className="text-xl font-semibold">{venuesSection.heading}</h2>
+        <p className="mt-2 text-sm text-gray-600">{venuesSection.description}</p>
 
-        {(venues || []).length > 0 ? (
+        {displayedVenueCount > 0 ? (
           <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
             {venues.map((venue: any) => (
               <a
@@ -451,7 +583,7 @@ export default async function LocalityPage({
           </div>
         ) : (
           <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-            <p>No venue cluster is available around {locality.name} yet.</p>
+            <p>{venuesSection.emptyText}</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <a
                 href="/venues"
