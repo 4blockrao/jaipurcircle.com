@@ -134,7 +134,7 @@ export default async function LocalityCategoryPage(props: any) {
       .from('events')
       .select('*')
       .eq('editorial_status', 'published')
-      .or(`locality_id.eq.${locality.id},locality.eq.${locality.slug}`)
+      .eq("locality_id", locality.id)
       .in('id', eventIdsByCategory)
       .limit(60);
 
