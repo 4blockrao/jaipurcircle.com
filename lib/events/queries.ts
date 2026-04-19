@@ -206,10 +206,13 @@ export async function getEventsByArtist(
     supabase.from("events").select("*").in("id", eventIds)
   );
 
-  return trimEventSection(sortEventsByLifecycle(dedupeEventsById(events || [])), {
-    limit,
-    excludeIds,
-  });
+  return trimEventSection(
+    sortEventsByLifecycle(dedupeEventsById(events || [])),
+    {
+      limit,
+      excludeIds,
+    }
+  );
 }
 
 export async function getUpcomingEventsForLocality(
