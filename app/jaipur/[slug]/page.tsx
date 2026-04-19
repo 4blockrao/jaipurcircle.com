@@ -99,7 +99,7 @@ export default async function LocalityPage({
     supabase
       .from("events")
       .select("id", { count: "exact", head: true })
-      .eq("status", "published")
+      .in("status", ["published", "upcoming"])
       .eq("editorial_status", "published")
       .eq("index_status", "index")
       .eq("locality_id", locality.id)
@@ -117,28 +117,31 @@ export default async function LocalityPage({
   const exactUpcomingCount = exactUpcomingCountRes.count || 0;
   const exactVenueCount = exactVenueCountRes.count || 0;
 
-  const showingExactEvents = exactUpcomingCount > 0;
-  const showingExactVenues = exactVenueCount > 0;
+  const hasStrongExactEvents = exactUpcomingCount >= 2;
+  const hasAnyExactEvents = exactUpcomingCount > 0;
+  const hasStrongExactVenues = exactVenueCount >= 2;
 
-  const eventsHeading = showingExactEvents
+  const eventsHeading = hasStrongExactEvents
     ? `Upcoming events in ${locality.name}`
-    : `Popular upcoming events near ${locality.name}`;
+    : `Upcoming events around ${locality.name}`;
 
-  const eventsDescription = showingExactEvents
-    ? `Discover upcoming events, experiences, and gatherings connected to ${locality.name}, Jaipur.`
-    : `There may not be enough exact locality-tagged events yet, so this section shows relevant upcoming Jaipur events around and beyond ${locality.name}.`;
+  const eventsDescription = hasStrongExactEvents
+    ? `Discover upcoming events, experiences, and gatherings directly connected to ${locality.name}, Jaipur.`
+    : hasAnyExactEvents
+      ? `This page includes both exact and nearby upcoming events so ${locality.name} never feels empty while locality coverage continues to improve.`
+      : `Exact locality-tagged upcoming events are still growing, so this page shows relevant upcoming events around ${locality.name} and across Jaipur where appropriate.`;
 
-  const eventsEmptyText = showingExactEvents
+  const eventsEmptyText = hasStrongExactEvents
     ? `No upcoming events are currently linked to ${locality.name}.`
-    : `No relevant upcoming events were found near ${locality.name} right now.`;
+    : `No relevant upcoming events were found around ${locality.name} right now.`;
 
-  const venuesHeading = showingExactVenues
+  const venuesHeading = hasStrongExactVenues
     ? `Popular venues in ${locality.name}`
-    : `Popular Jaipur venues near ${locality.name}`;
+    : `Popular venues around ${locality.name}`;
 
-  const venuesDescription = showingExactVenues
+  const venuesDescription = hasStrongExactVenues
     ? `Explore venues connected to this locality and use them as discovery hubs for events in Jaipur.`
-    : `Exact venue coverage for ${locality.name} is still growing, so this section shows nearby or broader Jaipur venue discovery.`;
+    : `Exact venue coverage for ${locality.name} is still growing, so this section shows relevant venues around this locality and across Jaipur where useful.`;
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-10">
@@ -181,6 +184,9 @@ export default async function LocalityPage({
           ) : null}
           <span className="rounded-full bg-gray-100 px-4 py-2">
             Exact Local Events: {exactUpcomingCount}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Displayed Events: {displayedUpcomingCount}
           </span>
           <span className="rounded-full bg-gray-100 px-4 py-2">
             Exact Local Venues: {exactVenueCount}
@@ -239,6 +245,12 @@ export default async function LocalityPage({
               <span className="text-gray-500">Municipality</span>
               <span className="text-right font-medium">
                 {locality.municipality || "—"}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Exact upcoming events</span>
+              <span className="text-right font-medium">
+                {exactUpcomingCount}
               </span>
             </div>
             <div className="flex justify-between gap-4">
@@ -439,7 +451,7 @@ export default async function LocalityPage({
           </div>
         ) : (
           <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-            <p>No venue cluster is available for {locality.name} yet.</p>
+            <p>No venue cluster is available around {locality.name} yet.</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <a
                 href="/venues"
