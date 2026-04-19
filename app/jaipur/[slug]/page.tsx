@@ -1,3 +1,4 @@
+import CivicFacts from "@/components/locality/CivicFacts";
 import NearbyLocalities from "@/components/locality/NearbyLocalities";
 import LocalityFAQ from "@/components/locality/LocalityFAQ";
 import { notFound } from "next/navigation";
@@ -321,7 +322,16 @@ export default async function LocalityPage({
       </section>
     
       
-      <NearbyLocalities
+      
+      <CivicFacts
+        name={locality.name}
+        zone={locality.zone}
+        municipality={locality.municipality}
+        pincode={locality.pincode}
+        policeStation={locality.police_station}
+      />
+
+<NearbyLocalities
         currentSlug={locality.slug}
         nearbyLocalities={locality.nearby_localities}
       />
