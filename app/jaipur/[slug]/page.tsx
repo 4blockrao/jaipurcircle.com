@@ -108,7 +108,27 @@ export default async function LocalityPage({
           ) : null}
           {locality.municipality ? (
             <span className="rounded-full bg-gray-100 px-4 py-2">
-              Municipality: {locality.municipality}
+              Municipality:
+      </div>
+
+      <div className="mt-6 flex flex-wrap gap-3">
+        <a href={`/jaipur/${locality.slug}/events`} className="text-blue-600 text-sm">
+          View all events in {locality.name} →
+        </a>
+      </div>
+
+      <section className="mt-8 max-w-3xl text-sm text-gray-600 leading-7">
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">
+          About {locality.name}, Jaipur
+        </h2>
+        <p>
+          {locality.name} is a key locality in Jaipur with active venues,
+          local experiences, and ongoing events. This page helps you discover
+          what’s happening in the area, explore venues, and browse both
+          upcoming and past events.
+        </p>
+      </section>
+     {locality.municipality}
             </span>
           ) : null}
         </div>
