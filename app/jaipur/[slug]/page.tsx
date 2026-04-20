@@ -12,6 +12,23 @@ async function getLocality(slug: string) {
   return res.json();
 }
 
+function getIntentClusters(locality: any) {
+  return [
+    {
+      title: `Things to do in ${locality.name}`,
+      items: locality.best_for || [],
+    },
+    {
+      title: `What ${locality.name} is known for`,
+      items: locality.known_for || [],
+    },
+    {
+      title: `Vibe of ${locality.name}`,
+      items: locality.vibe_tags || [],
+    },
+  ];
+}
+
 export default async function LocalityPage({ params }: any) {
   const { slug } = await params;
   const data = await getLocality(slug);
@@ -19,41 +36,49 @@ export default async function LocalityPage({ params }: any) {
   if (!data || !data.locality) return notFound();
 
   const locality = data.locality;
-  const exactEvents = data.events_exact || [];
-  const nearbyEvents = data.events_nearby || [];
-  const venues = data.venues || [];
-  const nearbyLocalities = locality.nearby_localities || [];
+  const exactEvents = data.events_exact ?? [];
+  const nearbyEvents = data.events_nearby ?? [];
+  const venues = data.venues ?? [];
+  const nearbyLocalities = locality.nearby_localities ?? [];
+
+  const intentClusters = getIntentClusters(locality);
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8">
 
       {/* HERO */}
       <h1 className="text-3xl font-bold mb-2">
-        {locality.name}
+        Things to do in {locality.name}, Jaipur
       </h1>
 
       <p className="text-gray-600 mb-6">
         {locality.seo_blurb}
       </p>
 
-      {/* WHY THIS LOCALITY */}
-      <section className="mb-10">
-        <h2 className="text-xl font-semibold mb-3">
-          Why explore {locality.name}?
+      {/* INTENT CLUSTERS */}
+      <section className="mb-12">
+        <h2 className="text-xl font-semibold mb-4">
+          Explore {locality.name}
         </h2>
 
-        <p className="text-gray-700 leading-relaxed">
-          {locality.name} is known for{" "}
-          <strong>{locality.known_for?.join(", ")}</strong>.  
-          It is especially popular for{" "}
-          <strong>{locality.best_for?.join(", ")}</strong>, with a vibe that feels{" "}
-          <strong>{locality.vibe_tags?.join(", ")}</strong>.  
-          Whether you’re exploring Jaipur for events, food, shopping, or local experiences,
-          this area plays an important role in the city’s everyday and cultural life.
-        </p>
+        <div className="grid md:grid-cols-3 gap-4">
+          {intentClusters.map((cluster, i) => (
+            <div key={i} className="border rounded-lg p-4">
+              <h3 className="font-semibold mb-2">
+                {cluster.title}
+              </h3>
+
+              <ul className="text-sm text-gray-700 space-y-1">
+                {cluster.items.map((item: string, idx: number) => (
+                  <li key={idx}>• {item}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       </section>
 
-      {/* EXACT EVENTS */}
+      {/* EVENTS (PRIMARY INTENT DRIVER) */}
       {exactEvents.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-4">
@@ -65,10 +90,15 @@ export default async function LocalityPage({ params }: any) {
               <Link
                 key={event.slug}
                 href={`/events/${event.slug}`}
-                className="border rounded-lg p-4 hover:shadow-md transition"
+                className="border rounded-lg p-4 hover:shadow transition"
               >
                 <h3 className="font-semibold">{event.title}</h3>
-                <p className="text-sm text-gray-500">{event.start_time}</p>
+
+                {event.start_time && (
+                  <p className="text-sm text-gray-500">
+                    {event.start_time}
+                  </p>
+                )}
               </Link>
             ))}
           </div>
@@ -79,7 +109,7 @@ export default async function LocalityPage({ params }: any) {
       {nearbyEvents.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-4">
-            More Events Near {locality.name}
+            More events near {locality.name}
           </h2>
 
           <div className="grid md:grid-cols-2 gap-4">
@@ -87,12 +117,15 @@ export default async function LocalityPage({ params }: any) {
               <Link
                 key={event.slug}
                 href={`/events/${event.slug}`}
-                className="border rounded-lg p-4 hover:shadow-md transition"
+                className="border rounded-lg p-4 hover:shadow transition"
               >
                 <h3 className="font-semibold">{event.title}</h3>
-                <p className="text-sm text-gray-500">
-                  {event.locality_name}
-                </p>
+
+                {event.locality_name && (
+                  <p className="text-sm text-gray-500">
+                    {event.locality_name}
+                  </p>
+                )}
               </Link>
             ))}
           </div>
@@ -103,7 +136,7 @@ export default async function LocalityPage({ params }: any) {
       {venues.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-4">
-            Popular Venues in {locality.name}
+            Popular places in {locality.name}
           </h2>
 
           <div className="grid md:grid-cols-3 gap-4">
@@ -111,7 +144,7 @@ export default async function LocalityPage({ params }: any) {
               <Link
                 key={venue.slug}
                 href={`/venues/${venue.slug}`}
-                className="border rounded-lg p-4 hover:shadow-md transition"
+                className="border rounded-lg p-4 hover:shadow transition"
               >
                 <h3 className="font-semibold">{venue.name}</h3>
               </Link>
@@ -120,34 +153,11 @@ export default async function LocalityPage({ params }: any) {
         </section>
       )}
 
-      {/* DISCOVERY ROUTES */}
-      <section className="mb-12">
-        <h2 className="text-xl font-semibold mb-4">
-          Explore more from {locality.name}
-        </h2>
-
-        <div className="grid md:grid-cols-3 gap-4">
-
-          <Link href="/events" className="border p-4 rounded-lg hover:shadow">
-            All Jaipur Events
-          </Link>
-
-          <Link href={`/jaipur/${slug}`} className="border p-4 rounded-lg hover:shadow">
-            More in {locality.name}
-          </Link>
-
-          <Link href="/venues" className="border p-4 rounded-lg hover:shadow">
-            Browse Venues
-          </Link>
-
-        </div>
-      </section>
-
       {/* NEARBY LOCALITIES */}
       {nearbyLocalities.length > 0 && (
         <section className="mb-12">
           <h2 className="text-xl font-semibold mb-4">
-            Nearby Localities
+            Nearby areas to explore
           </h2>
 
           <div className="flex flex-wrap gap-2">
@@ -164,17 +174,42 @@ export default async function LocalityPage({ params }: any) {
         </section>
       )}
 
-      {/* ARCHIVE CONTINUITY */}
-      <section className="mb-10">
-        <h2 className="text-xl font-semibold mb-3">
-          Events history in {locality.name}
+      {/* DISCOVERY */}
+      <section className="mb-12">
+        <h2 className="text-xl font-semibold mb-4">
+          Explore Jaipur
         </h2>
 
-        <p className="text-gray-700">
-          Events in {locality.name} remain part of JaipurCircle’s archive.
-          Even after events conclude, their pages stay live and continue to
-          connect you with similar upcoming events, venues, and experiences
-          across Jaipur.
+        <div className="grid md:grid-cols-3 gap-4">
+
+          <Link href="/events" className="border p-4 rounded-lg hover:shadow">
+            All Events in Jaipur
+          </Link>
+
+          <Link href="/venues" className="border p-4 rounded-lg hover:shadow">
+            Browse Venues
+          </Link>
+
+          <Link href="/categories" className="border p-4 rounded-lg hover:shadow">
+            Explore Categories
+          </Link>
+
+        </div>
+      </section>
+
+      {/* SEO PARAGRAPH */}
+      <section className="mt-12">
+        <h2 className="text-xl font-semibold mb-3">
+          About {locality.name}
+        </h2>
+
+        <p className="text-gray-700 leading-relaxed">
+          Looking for things to do in {locality.name}, Jaipur? This area is known for{" "}
+          {locality.known_for?.join(", ")} and is ideal for{" "}
+          {locality.best_for?.join(", ")}. Whether you’re exploring events,
+          places, or everyday experiences, {locality.name} offers a mix of{" "}
+          {locality.vibe_tags?.join(", ")} experiences that make it one of the
+          key localities in Jaipur.
         </p>
       </section>
 
