@@ -1,16 +1,7 @@
 import { notFound } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase";
-import LocalityEventGrid from "@/components/locality/LocalityEventGrid";
 
 export const dynamic = "force-dynamic";
-
-function normalizeText(value?: string | null) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function normalizeSlugText(value?: string | null) {
-  return normalizeText(value).replace(/-/g, " ");
-}
 
 function formatDate(value?: string | null) {
   if (!value) return "";
@@ -55,31 +46,11 @@ function getEventPrice(event: any) {
   return "Price TBA";
 }
 
-function getPrimaryTag(event: any) {
-  if (Array.isArray(event?.tags) && event.tags.length > 0) return event.tags[0];
-  if (event?.category) return event.category;
-  return "Event";
-}
-
 function prettyText(value?: string | null) {
   if (!value) return "";
   return String(value)
     .replace(/-/g, " ")
     .replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-function dedupeById(items: any[] | null | undefined) {
-  const out: any[] = [];
-  const seen = new Set<string>();
-
-  for (const item of items || []) {
-    const id = item?.id;
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    out.push(item);
-  }
-
-  return out;
 }
 
 async function getEventBySlug(supabase: any, slug: string) {
@@ -113,155 +84,66 @@ async function getEventBySlug(supabase: any, slug: string) {
 }
 
 async function getLocalityForEvent(supabase: any, event: any) {
-  if (event?.locality_id) {
-    const { data } = await supabase
+  try {
+    if (event?.locality_id) {
+      const { data } = await supabase
+        .from("localities")
+        .select("id,name,slug")
+        .eq("id", event.locality_id)
+        .maybeSingle();
+
+      if (data) return data;
+    }
+
+    const localityValue = event?.locality;
+    if (!localityValue) return null;
+
+    const slug = String(localityValue).trim().toLowerCase().replace(/\s+/g, "-");
+
+    let { data } = await supabase
       .from("localities")
-      .select("*")
-      .eq("id", event.locality_id)
+      .select("id,name,slug")
+      .eq("slug", slug)
       .maybeSingle();
 
     if (data) return data;
+
+    ({ data } = await supabase
+      .from("localities")
+      .select("id,name,slug")
+      .ilike("name", String(localityValue).trim())
+      .maybeSingle());
+
+    return data || null;
+  } catch {
+    return null;
   }
-
-  const localityText = normalizeSlugText(event?.locality);
-  if (!localityText) return null;
-
-  let { data } = await supabase
-    .from("localities")
-    .select("*")
-    .eq("slug", localityText.replace(/\s+/g, "-"))
-    .maybeSingle();
-
-  if (data) return data;
-
-  ({ data } = await supabase
-    .from("localities")
-    .select("*")
-    .ilike("name", localityText)
-    .maybeSingle());
-
-  return data || null;
 }
 
 async function getVenueForEvent(supabase: any, event: any) {
-  if (event?.venue_id) {
+  try {
+    if (event?.venue_id) {
+      const { data } = await supabase
+        .from("venues")
+        .select("id,name,slug")
+        .eq("id", event.venue_id)
+        .maybeSingle();
+
+      if (data) return data;
+    }
+
+    if (!event?.venue_name) return null;
+
     const { data } = await supabase
       .from("venues")
-      .select("*")
-      .eq("id", event.venue_id)
-      .maybeSingle();
+      .select("id,name,slug")
+      .ilike("name", String(event.venue_name).trim())
+      .limit(1);
 
-    if (data) return data;
+    return data?.[0] || null;
+  } catch {
+    return null;
   }
-
-  const venueName = normalizeText(event?.venue_name);
-  if (!venueName) return null;
-
-  const { data } = await supabase
-    .from("venues")
-    .select("*")
-    .ilike("name", venueName)
-    .limit(1);
-
-  return data?.[0] || null;
-}
-
-async function getRelatedUpcomingEvents(
-  supabase: any,
-  {
-    event,
-    locality,
-    venue,
-    limit = 6,
-  }: {
-    event: any;
-    locality: any;
-    venue: any;
-    limit?: number;
-  }
-) {
-  const nowIso = new Date().toISOString();
-  let combined: any[] = [];
-
-  if (locality?.id) {
-    const { data } = await supabase
-      .from("events")
-      .select("*")
-      .in("status", ["published", "upcoming"])
-      .eq("editorial_status", "published")
-      .eq("index_status", "index")
-      .eq("locality_id", locality.id)
-      .gte("start_date", nowIso)
-      .neq("id", event.id)
-      .order("start_date", { ascending: true })
-      .limit(limit * 2);
-
-    combined = combined.concat(data || []);
-  }
-
-  if (venue?.id) {
-    const { data } = await supabase
-      .from("events")
-      .select("*")
-      .in("status", ["published", "upcoming"])
-      .eq("editorial_status", "published")
-      .eq("index_status", "index")
-      .eq("venue_id", venue.id)
-      .gte("start_date", nowIso)
-      .neq("id", event.id)
-      .order("start_date", { ascending: true })
-      .limit(limit * 2);
-
-    combined = combined.concat(data || []);
-  }
-
-  if (locality?.slug) {
-    const { data } = await supabase
-      .from("events")
-      .select("*")
-      .in("status", ["published", "upcoming"])
-      .eq("editorial_status", "published")
-      .eq("index_status", "index")
-      .ilike("locality", `%${locality.slug}%`)
-      .gte("start_date", nowIso)
-      .neq("id", event.id)
-      .order("start_date", { ascending: true })
-      .limit(limit * 2);
-
-    combined = combined.concat(data || []);
-  }
-
-  return dedupeById(combined).slice(0, limit);
-}
-
-async function getMoreFromVenueArchive(
-  supabase: any,
-  {
-    event,
-    venue,
-    limit = 6,
-  }: {
-    event: any;
-    venue: any;
-    limit?: number;
-  }
-) {
-  if (!venue?.id) return [];
-
-  const nowIso = new Date().toISOString();
-  const { data } = await supabase
-    .from("events")
-    .select("*")
-    .in("status", ["published", "upcoming"])
-    .eq("editorial_status", "published")
-    .eq("index_status", "index")
-    .eq("venue_id", venue.id)
-    .lt("start_date", nowIso)
-    .neq("id", event.id)
-    .order("start_date", { ascending: false })
-    .limit(limit);
-
-  return data || [];
 }
 
 export async function generateMetadata({
@@ -320,26 +202,12 @@ export default async function EventPage({
     getVenueForEvent(supabase, event),
   ]);
 
-  const [relatedUpcoming, venueArchive] = await Promise.all([
-    getRelatedUpcomingEvents(supabase, {
-      event,
-      locality,
-      venue,
-      limit: 6,
-    }),
-    getMoreFromVenueArchive(supabase, {
-      event,
-      venue,
-      limit: 6,
-    }),
-  ]);
-
   const closed = isEventClosed(event);
   const localityHref = locality?.slug ? `/jaipur/${locality.slug}` : null;
   const venueHref = venue?.slug ? `/venues/${venue.slug}` : null;
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-10">
+    <main className="mx-auto max-w-6xl px-4 py-10">
       <nav className="text-sm text-gray-500">
         <a href="/" className="hover:text-black">
           Home
@@ -356,7 +224,7 @@ export default async function EventPage({
         <div>
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
-              {prettyText(getPrimaryTag(event))}
+              {prettyText(event?.category || "Event")}
             </span>
             <span
               className={`rounded-full px-3 py-1 text-sm ${
@@ -381,7 +249,7 @@ export default async function EventPage({
           <p className="mt-4 max-w-2xl text-gray-700 leading-7">
             {event.description ||
               event.seo_blurb ||
-              `${event.title} is listed on JaipurCircle with event details, venue context, and locality-based discovery links.`}
+              `${event.title} is listed on JaipurCircle with event details and discovery context.`}
           </p>
 
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -422,65 +290,43 @@ export default async function EventPage({
             </div>
           </div>
 
+          <div className="mt-6 flex flex-wrap gap-3">
+            {venueHref ? (
+              <a
+                href={venueHref}
+                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 hover:bg-blue-100"
+              >
+                View venue →
+              </a>
+            ) : null}
+            {localityHref ? (
+              <a
+                href={localityHref}
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Explore {locality?.name} →
+              </a>
+            ) : null}
+            <a
+              href="/events"
+              className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              All Jaipur events →
+            </a>
+          </div>
+
           {closed ? (
             <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-5">
               <h2 className="text-lg font-semibold text-gray-900">
                 This event has ended
               </h2>
               <p className="mt-2 text-sm leading-6 text-gray-700">
-                JaipurCircle keeps past event pages live so they continue to act
-                as searchable history and locality memory. Use the links below to
-                discover similar upcoming events, explore the venue, or continue
-                browsing this locality.
+                JaipurCircle keeps event pages live as searchable memory so users
+                can continue discovering similar local experiences, venues, and
+                locality hubs over time.
               </p>
-
-              <div className="mt-4 flex flex-wrap gap-3">
-                {localityHref ? (
-                  <a
-                    href={localityHref}
-                    className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 hover:bg-blue-100"
-                  >
-                    Explore {locality.name} →
-                  </a>
-                ) : null}
-
-                {venueHref ? (
-                  <a
-                    href={venueHref}
-                    className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    View venue page →
-                  </a>
-                ) : null}
-
-                <a
-                  href="/events"
-                  className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  Explore upcoming Jaipur events →
-                </a>
-              </div>
             </div>
-          ) : (
-            <div className="mt-6 flex flex-wrap gap-3">
-              {venueHref ? (
-                <a
-                  href={venueHref}
-                  className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 hover:bg-blue-100"
-                >
-                  View venue →
-                </a>
-              ) : null}
-              {localityHref ? (
-                <a
-                  href={localityHref}
-                  className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  Explore {locality.name} →
-                </a>
-              ) : null}
-            </div>
-          )}
+          ) : null}
         </div>
 
         <div className="overflow-hidden rounded-[2rem] border border-gray-200 bg-white shadow-sm">
@@ -497,6 +343,7 @@ export default async function EventPage({
           <h2 className="text-xl font-semibold text-gray-900">
             Event context
           </h2>
+
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="rounded-xl border border-gray-100 p-4">
               <div className="text-xs uppercase tracking-wide text-gray-500">
@@ -532,51 +379,6 @@ export default async function EventPage({
               ) : null}
             </div>
           </div>
-        </section>
-      ) : null}
-
-      {relatedUpcoming.length > 0 ? (
-        <section className="mt-12">
-          <h2 className="text-2xl font-semibold text-gray-900">
-            {closed
-              ? "Similar upcoming events"
-              : "More upcoming events around this event"}
-          </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            {closed
-              ? "This event has ended, but these upcoming events help continue discovery through the same locality, venue, or nearby Jaipur relevance."
-              : "Use these upcoming events to continue exploring the same locality, venue, or nearby Jaipur context."}
-          </p>
-
-          <LocalityEventGrid
-            title=""
-            description=""
-            events={relatedUpcoming}
-            emptyText=""
-            currentLocalityId={locality?.id || null}
-            currentLocalityName={locality?.name || null}
-          />
-        </section>
-      ) : null}
-
-      {closed && venueArchive.length > 0 ? (
-        <section className="mt-12">
-          <h2 className="text-2xl font-semibold text-gray-900">
-            More event history at {venue?.name || event?.venue_name || "this venue"}
-          </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            JaipurCircle preserves ended event pages so venue history and locality
-            memory continue compounding over time.
-          </p>
-
-          <LocalityEventGrid
-            title=""
-            description=""
-            events={venueArchive}
-            emptyText=""
-            currentLocalityId={locality?.id || null}
-            currentLocalityName={locality?.name || null}
-          />
         </section>
       ) : null}
     </main>
