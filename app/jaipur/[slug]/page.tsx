@@ -371,13 +371,7 @@ function getStrongHubEditorialBlock({
 }) {
   return {
     heading: `${localityName} as a Jaipur discovery hub`,
-    body: `${localityName} is no longer just a placeholder locality page. It now has enough exact inventory to behave like a real hyperlocal discovery node, with ${exactUpcomingCount} exact upcoming event${
-      exactUpcomingCount === 1 ? "" : "s"
-    }, ${exactVenueCount} exact venue${
-      exactVenueCount === 1 ? "" : "s"
-    }, and ${exactPastCount} archived exact event${
-      exactPastCount === 1 ? "" : "s"
-    } contributing to local memory. The next goal for this hub is quality compounding: stronger venue context, richer locality comparisons, more authoritative civic detail, and tighter event curation over time.`;
+    body: `${localityName} is no longer just a placeholder locality page. It now has enough exact inventory to behave like a real hyperlocal discovery node, with ${exactUpcomingCount} exact upcoming event${exactUpcomingCount === 1 ? "" : "s"}, ${exactVenueCount} exact venue${exactVenueCount === 1 ? "" : "s"}, and ${exactPastCount} archived exact event${exactPastCount === 1 ? "" : "s"} contributing to local memory. The next goal for this hub is quality compounding: stronger venue context, richer locality comparisons, more authoritative civic detail, and tighter event curation over time.`,
   };
 }
 
