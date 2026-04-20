@@ -375,6 +375,21 @@ function getStrongHubEditorialBlock({
   };
 }
 
+function toArray(value: any): string[] {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function renderChipList(items: string[]) {
+  return items.map((item, idx) => (
+    <span
+      key={`${item}-${idx}`}
+      className="rounded-full bg-gray-100 px-3 py-1.5 text-sm text-gray-700"
+    >
+      {item}
+    </span>
+  ));
+}
+
 function getIdentitySummary({
   locality,
   tier,
@@ -388,9 +403,9 @@ function getIdentitySummary({
   exactVenueCount: number;
   exactPastCount: number;
 }) {
-  const bestFor = Array.isArray(locality?.best_for) ? locality.best_for : [];
-  const vibeTags = Array.isArray(locality?.vibe_tags) ? locality.vibe_tags : [];
-  const knownFor = Array.isArray(locality?.known_for) ? locality.known_for : [];
+  const bestFor = toArray(locality?.best_for);
+  const vibeTags = toArray(locality?.vibe_tags);
+  const knownFor = toArray(locality?.known_for);
 
   if (tier === "strong") {
     return `${locality.name} is currently one of JaipurCircle’s most developed locality hubs, combining ${exactUpcomingCount} exact upcoming event${exactUpcomingCount === 1 ? "" : "s"}, ${exactVenueCount} exact venue${exactVenueCount === 1 ? "" : "s"}, and ${exactPastCount} archived exact event${exactPastCount === 1 ? "" : "s"} with a clearer local identity around ${knownFor.slice(0, 2).join(", ") || "city activity"}, ${bestFor.slice(0, 2).join(", ") || "everyday discovery"}, and a ${vibeTags.slice(0, 2).join(", ") || "distinct"} character.`;
@@ -410,9 +425,9 @@ function getWhyChooseThisLocality({
   locality: any;
   tier: LocalityTier;
 }) {
-  const bestFor = Array.isArray(locality?.best_for) ? locality.best_for : [];
-  const vibeTags = Array.isArray(locality?.vibe_tags) ? locality.vibe_tags : [];
-  const knownFor = Array.isArray(locality?.known_for) ? locality.known_for : [];
+  const bestFor = toArray(locality?.best_for);
+  const vibeTags = toArray(locality?.vibe_tags);
+  const knownFor = toArray(locality?.known_for);
 
   const points: string[] = [];
 
@@ -613,6 +628,11 @@ export default async function LocalityPage({
     locality,
     tier,
   });
+
+  const knownFor = toArray(locality?.known_for);
+  const bestFor = toArray(locality?.best_for);
+  const vibeTags = toArray(locality?.vibe_tags);
+  const landmarks = toArray(locality?.landmarks);
 
   const baseIntro =
     locality.description ||
@@ -834,6 +854,63 @@ export default async function LocalityPage({
           </div>
         </div>
       </section>
+
+      {(knownFor.length > 0 || bestFor.length > 0 || vibeTags.length > 0 || landmarks.length > 0) ? (
+        <section className="mt-8 rounded-2xl border border-gray-200 bg-white p-6">
+          <h2 className="text-xl font-semibold text-gray-900">
+            Locality signals for {locality.name}
+          </h2>
+          <p className="mt-2 text-sm text-gray-600">
+            These structured signals help explain what {locality.name} is known for, who it suits best, and how it fits into Jaipur’s broader local discovery map.
+          </p>
+
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {knownFor.length > 0 ? (
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  Known for
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {renderChipList(knownFor)}
+                </div>
+              </div>
+            ) : null}
+
+            {bestFor.length > 0 ? (
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  Best for
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {renderChipList(bestFor)}
+                </div>
+              </div>
+            ) : null}
+
+            {vibeTags.length > 0 ? (
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  Area vibe
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {renderChipList(vibeTags)}
+                </div>
+              </div>
+            ) : null}
+
+            {landmarks.length > 0 ? (
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  Key landmarks
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {renderChipList(landmarks)}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <LocalityDifferentiation
         name={locality.name}
