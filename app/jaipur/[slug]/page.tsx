@@ -189,6 +189,52 @@ function getFallbackEventsSectionCopy(localityName: string): EventsSectionCopy {
   };
 }
 
+function getPrimaryArchiveSectionCopy({
+  tier,
+  localityName,
+  exactPastCount,
+}: {
+  tier: LocalityTier;
+  localityName: string;
+  exactPastCount: number;
+}): EventsSectionCopy {
+  if (tier === "strong") {
+    return {
+      heading: `Event history in ${localityName}`,
+      description:
+        exactPastCount > 0
+          ? `JaipurCircle preserves exact event memory for ${localityName}, helping this locality page compound into a stronger long-term archive.`
+          : `JaipurCircle is building a permanent event memory layer for ${localityName}, so this locality can compound over time rather than reset after each cycle.`,
+      emptyText: `No exact past event archive is currently available for ${localityName}.`,
+    };
+  }
+
+  if (tier === "developing") {
+    return {
+      heading: `Event history in ${localityName}`,
+      description:
+        exactPastCount > 0
+          ? `JaipurCircle keeps past events visible for ${localityName} wherever possible so locality pages retain memory and search value over time.`
+          : `Historical locality memory for ${localityName} is still developing, but JaipurCircle is designed to preserve relevant archive value as inventory grows.`,
+      emptyText: `No exact past event archive is currently available for ${localityName}.`,
+    };
+  }
+
+  return {
+    heading: `Archive memory for ${localityName}`,
+    description: `${localityName} is still thin, but JaipurCircle is structured to preserve locality-linked event memory as the page matures over time.`,
+    emptyText: `No exact past event archive is currently available for ${localityName}.`,
+  };
+}
+
+function getArchiveFallbackSectionCopy(localityName: string): EventsSectionCopy {
+  return {
+    heading: `Related past events around ${localityName}`,
+    description: `These older events extend the locality memory layer for ${localityName} using nearby or broader Jaipur archive relevance.`,
+    emptyText: `No related past event memory is currently available around ${localityName}.`,
+  };
+}
+
 function getPrimaryVenuesSectionCopy({
   tier,
   localityName,
@@ -278,12 +324,12 @@ function getAuthorityHighlights({
   tier,
   exactUpcomingCount,
   exactVenueCount,
-  pastCount,
+  exactPastCount,
 }: {
   tier: LocalityTier;
   exactUpcomingCount: number;
   exactVenueCount: number;
-  pastCount: number;
+  exactPastCount: number;
 }) {
   if (tier === "strong") {
     return [
@@ -291,7 +337,7 @@ function getAuthorityHighlights({
         exactUpcomingCount === 1 ? "" : "s"
       } currently mapped`,
       `${exactVenueCount} exact venue${exactVenueCount === 1 ? "" : "s"} contributing to locality strength`,
-      `${pastCount} archived event${pastCount === 1 ? "" : "s"} building locality memory`,
+      `${exactPastCount} archived exact event${exactPastCount === 1 ? "" : "s"} building locality memory`,
     ];
   }
 
@@ -301,14 +347,14 @@ function getAuthorityHighlights({
         exactUpcomingCount === 1 ? "" : "s"
       } currently mapped`,
       `${exactVenueCount} exact venue${exactVenueCount === 1 ? "" : "s"} currently linked`,
-      `${pastCount} archived event${pastCount === 1 ? "" : "s"} supporting locality history`,
+      `${exactPastCount} archived exact event${exactPastCount === 1 ? "" : "s"} supporting locality history`,
     ];
   }
 
   return [
     "Full locality coverage track retained even while this page is still thin",
     "Nearby events and venues help keep discovery useful in early phases",
-    "This locality is positioned for progressive enrichment over time",
+    "Archive memory will strengthen as exact locality history accumulates",
   ];
 }
 
@@ -316,12 +362,12 @@ function getStrongHubEditorialBlock({
   localityName,
   exactUpcomingCount,
   exactVenueCount,
-  pastCount,
+  exactPastCount,
 }: {
   localityName: string;
   exactUpcomingCount: number;
   exactVenueCount: number;
-  pastCount: number;
+  exactPastCount: number;
 }) {
   return {
     heading: `${localityName} as a Jaipur discovery hub`,
@@ -329,9 +375,9 @@ function getStrongHubEditorialBlock({
       exactUpcomingCount === 1 ? "" : "s"
     }, ${exactVenueCount} exact venue${
       exactVenueCount === 1 ? "" : "s"
-    }, and ${pastCount} archived event${
-      pastCount === 1 ? "" : "s"
-    } contributing to local memory. The next goal for this hub is quality compounding: stronger venue context, richer locality comparisons, more authoritative civic detail, and tighter event curation over time.`,
+    }, and ${exactPastCount} archived exact event${
+      exactPastCount === 1 ? "" : "s"
+    } contributing to local memory. The next goal for this hub is quality compounding: stronger venue context, richer locality comparisons, more authoritative civic detail, and tighter event curation over time.`;
   };
 }
 
@@ -354,10 +400,11 @@ export default async function LocalityPage({
 
   const [
     upcomingEventsRaw,
-    pastEvents,
+    pastEventsRaw,
     venuesRaw,
     exactUpcomingCountRes,
     exactVenueCountRes,
+    exactPastCountRes,
   ] = await Promise.all([
     getUpcomingEventsForLocality(supabase, {
       localityId: locality.id,
@@ -366,7 +413,7 @@ export default async function LocalityPage({
     }),
     getPastEventsForLocality(supabase, {
       localityId: locality.id,
-      limit: 6,
+      limit: 12,
     }),
     getVenuesForLocality(supabase, {
       localityId: locality.id,
@@ -385,14 +432,23 @@ export default async function LocalityPage({
       .from("venues")
       .select("id", { count: "exact", head: true })
       .eq("locality_id", locality.id),
+    supabase
+      .from("events")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["published", "upcoming"])
+      .eq("editorial_status", "published")
+      .eq("index_status", "index")
+      .eq("locality_id", locality.id)
+      .lt("start_date", nowIso),
   ]);
 
   const exactUpcomingCount = exactUpcomingCountRes.count || 0;
   const exactVenueCount = exactVenueCountRes.count || 0;
+  const exactPastCount = exactPastCountRes.count || 0;
 
   const tier = deriveLocalityTier({
     exactUpcomingCount,
-    pastCount: countItems(pastEvents),
+    pastCount: exactPastCount,
     exactVenueCount,
   });
 
@@ -402,6 +458,14 @@ export default async function LocalityPage({
 
   const fallbackUpcomingEvents = dedupeById(
     (upcomingEventsRaw || []).filter((event: any) => !eventMatchesLocality(event, locality))
+  ).slice(0, 6);
+
+  const exactPastEvents = dedupeById(
+    (pastEventsRaw || []).filter((event: any) => eventMatchesLocality(event, locality))
+  ).slice(0, 6);
+
+  const fallbackPastEvents = dedupeById(
+    (pastEventsRaw || []).filter((event: any) => !eventMatchesLocality(event, locality))
   ).slice(0, 6);
 
   const exactVenues = dedupeById(
@@ -417,11 +481,14 @@ export default async function LocalityPage({
       ? exactUpcomingEvents
       : fallbackUpcomingEvents.slice(0, 6);
 
+  const displayedPastEvents =
+    exactPastEvents.length > 0 ? exactPastEvents : fallbackPastEvents.slice(0, 6);
+
   const displayedVenueItems =
     exactVenues.length > 0 ? exactVenues : fallbackVenues.slice(0, 6);
 
   const displayedUpcomingCount = countItems(displayedUpcomingEvents);
-  const displayedPastCount = countItems(pastEvents);
+  const displayedPastCount = countItems(displayedPastEvents);
   const displayedVenueCount = countItems(displayedVenueItems);
 
   const primaryEventsSection = getPrimaryEventsSectionCopy({
@@ -431,6 +498,14 @@ export default async function LocalityPage({
   });
 
   const fallbackEventsSection = getFallbackEventsSectionCopy(locality.name);
+
+  const primaryArchiveSection = getPrimaryArchiveSectionCopy({
+    tier,
+    localityName: locality.name,
+    exactPastCount,
+  });
+
+  const archiveFallbackSection = getArchiveFallbackSectionCopy(locality.name);
 
   const primaryVenuesSection = getPrimaryVenuesSectionCopy({
     tier,
@@ -451,7 +526,7 @@ export default async function LocalityPage({
     tier,
     exactUpcomingCount,
     exactVenueCount,
-    pastCount: displayedPastCount,
+    exactPastCount,
   });
 
   const strongHubBlock =
@@ -460,7 +535,7 @@ export default async function LocalityPage({
           localityName: locality.name,
           exactUpcomingCount,
           exactVenueCount,
-          pastCount: displayedPastCount,
+          exactPastCount,
         })
       : null;
 
@@ -472,6 +547,11 @@ export default async function LocalityPage({
   const shouldShowFallbackEvents =
     exactUpcomingEvents.length > 0 &&
     fallbackUpcomingEvents.length > 0 &&
+    tier !== "thin";
+
+  const shouldShowArchiveFallback =
+    exactPastEvents.length > 0 &&
+    fallbackPastEvents.length > 0 &&
     tier !== "thin";
 
   const shouldShowFallbackVenues =
@@ -522,6 +602,9 @@ export default async function LocalityPage({
           </span>
           <span className="rounded-full bg-gray-100 px-4 py-2">
             Displayed Events: {displayedUpcomingCount}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Exact Archive Events: {exactPastCount}
           </span>
           <span className="rounded-full bg-gray-100 px-4 py-2">
             Exact Local Venues: {exactVenueCount}
@@ -597,7 +680,11 @@ export default async function LocalityPage({
               </span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-gray-500">Past events</span>
+              <span className="text-gray-500">Exact archive events</span>
+              <span className="text-right font-medium">{exactPastCount}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Displayed archive events</span>
               <span className="text-right font-medium">
                 {displayedPastCount}
               </span>
@@ -779,11 +866,10 @@ export default async function LocalityPage({
         <div className="flex items-end justify-between gap-4">
           <div>
             <h2 className="text-2xl font-semibold text-gray-900">
-              Event history in {locality.name}
+              {primaryArchiveSection.heading}
             </h2>
             <p className="mt-2 text-sm text-gray-600">
-              JaipurCircle keeps past event memory visible wherever possible so
-              locality pages can compound over time.
+              {primaryArchiveSection.description}
             </p>
           </div>
         </div>
@@ -792,14 +878,14 @@ export default async function LocalityPage({
           <LocalityEventGrid
             title=""
             description=""
-            events={pastEvents}
+            events={displayedPastEvents}
             emptyText=""
             currentLocalityId={locality.id}
             currentLocalityName={locality.name}
           />
         ) : (
           <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-            <p>No past event archive is currently available for {locality.name}.</p>
+            <p>{primaryArchiveSection.emptyText}</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <a
                 href={`/jaipur/${locality.slug}/events`}
@@ -816,6 +902,30 @@ export default async function LocalityPage({
             </div>
           </div>
         )}
+
+        {shouldShowArchiveFallback ? (
+          <div className="mt-10">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">
+                  {archiveFallbackSection.heading}
+                </h3>
+                <p className="mt-2 text-sm text-gray-600">
+                  {archiveFallbackSection.description}
+                </p>
+              </div>
+            </div>
+
+            <LocalityEventGrid
+              title=""
+              description=""
+              events={fallbackPastEvents}
+              emptyText=""
+              currentLocalityId={locality.id}
+              currentLocalityName={locality.name}
+            />
+          </div>
+        ) : null}
       </section>
 
       <section className="mt-12">
