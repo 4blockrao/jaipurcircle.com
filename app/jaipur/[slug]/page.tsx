@@ -28,6 +28,15 @@ type VenuesSectionCopy = {
   emptyText: string;
 };
 
+type NearbyLocalityLike =
+  | string
+  | {
+      slug?: string;
+      name?: string;
+      locality_slug?: string;
+      locality_name?: string;
+    };
+
 export async function generateMetadata(
   props: { params: Promise<{ slug: string }> }
 ) {
@@ -458,6 +467,120 @@ function getNearbyLocalityComparisonIntro(localityName: string) {
   return `Users rarely think about Jaipur localities in isolation. This section helps position ${localityName} relative to nearby neighborhoods so the page becomes more useful for local comparison, navigation, and intent-driven discovery.`;
 }
 
+function normalizeNearbyLocalities(items: NearbyLocalityLike[] | null | undefined) {
+  const out: { slug: string; name: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const item of items || []) {
+    const slug =
+      typeof item === "string"
+        ? item
+        : item?.slug || item?.locality_slug || null;
+
+    const name =
+      typeof item === "string"
+        ? item.replace(/-/g, " ").replace(/\b\w/g, (m: string) => m.toUpperCase())
+        : item?.name ||
+          item?.locality_name ||
+          slug?.replace(/-/g, " ").replace(/\b\w/g, (m: string) => m.toUpperCase()) ||
+          "";
+
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    out.push({ slug, name });
+  }
+
+  return out;
+}
+
+function getLocalityClusterLabel(locality: any) {
+  const zone = String(locality?.zone || "").toLowerCase();
+  const municipality = String(locality?.municipality || "").toLowerCase();
+  const name = String(locality?.name || "").toLowerCase();
+
+  if (
+    zone.includes("hawa mahal") ||
+    municipality.includes("hawa mahal") ||
+    name.includes("bazaar") ||
+    name.includes("chaupar") ||
+    name.includes("mahal")
+  ) {
+    return "Old Jaipur / Heritage Cluster";
+  }
+
+  if (
+    zone.includes("vishwakarma") ||
+    zone.includes("jhotwara") ||
+    name.includes("vki") ||
+    name.includes("industrial")
+  ) {
+    return "Industrial / Business Cluster";
+  }
+
+  if (
+    zone.includes("sanganer") ||
+    name.includes("jagatpura") ||
+    name.includes("malviya") ||
+    name.includes("sitapura") ||
+    name.includes("tonk")
+  ) {
+    return "South / Growth Corridor";
+  }
+
+  if (
+    zone.includes("civil lines") ||
+    name.includes("vaishali") ||
+    name.includes("chitrakoot") ||
+    name.includes("nirman") ||
+    name.includes("sodala")
+  ) {
+    return "West / Residential Cluster";
+  }
+
+  if (
+    zone.includes("vidyadhar") ||
+    name.includes("amer") ||
+    name.includes("nahargarh") ||
+    name.includes("jal mahal")
+  ) {
+    return "North / Tourism-Access Cluster";
+  }
+
+  return "Jaipur Locality Network";
+}
+
+function getClusterDescription(locality: any) {
+  const cluster = getLocalityClusterLabel(locality);
+
+  switch (cluster) {
+    case "Old Jaipur / Heritage Cluster":
+      return "This locality belongs to Jaipur’s heritage-heavy urban core, where old-city retail, tourism, landmarks, and traditional market movement create a distinct discovery pattern.";
+    case "Industrial / Business Cluster":
+      return "This locality sits within a business-oriented Jaipur belt shaped by industrial activity, logistics, commercial support services, and practical city movement.";
+    case "South / Growth Corridor":
+      return "This locality is part of Jaipur’s fast-growing southern corridor, where residential expansion, institutions, exhibitions, and new development increasingly shape demand.";
+    case "West / Residential Cluster":
+      return "This locality belongs to Jaipur’s residential-western belt, where family living, retail convenience, food, services, and neighborhood discovery define the area’s utility.";
+    case "North / Tourism-Access Cluster":
+      return "This locality sits within Jaipur’s northern access and tourism-facing belt, where forts, heritage routes, monuments, and visitor movement create distinctive search intent.";
+    default:
+      return "This locality is part of Jaipur’s broader discovery graph, and its strength compounds through nearby localities, civic context, events, venues, and future merchant depth.";
+  }
+}
+
+function getComparisonPrompts(locality: any, nearby: { slug: string; name: string }[]) {
+  const prompts: { label: string; href: string }[] = [];
+
+  for (const item of nearby.slice(0, 4)) {
+    prompts.push({
+      label: `${locality.name} vs ${item.name}`,
+      href: `/jaipur/${item.slug}`,
+    });
+  }
+
+  return prompts;
+}
+
 export default async function LocalityPage({
   params,
 }: {
@@ -654,9 +777,13 @@ export default async function LocalityPage({
     fallbackVenues.length > 0 &&
     tier !== "thin";
 
-  const nearbyLocalities = Array.isArray(locality?.nearby_localities)
-    ? locality.nearby_localities
-    : [];
+  const normalizedNearby = normalizeNearbyLocalities(
+    Array.isArray(locality?.nearby_localities) ? locality.nearby_localities : []
+  );
+
+  const localityClusterLabel = getLocalityClusterLabel(locality);
+  const localityClusterDescription = getClusterDescription(locality);
+  const comparisonPrompts = getComparisonPrompts(locality, normalizedNearby);
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-10">
@@ -685,6 +812,9 @@ export default async function LocalityPage({
           </span>
           <span className="rounded-full bg-gray-100 px-4 py-2">
             Tier: {getTierLabel(tier)}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Cluster: {localityClusterLabel}
           </span>
           {locality.zone ? (
             <span className="rounded-full bg-gray-100 px-4 py-2">
@@ -753,6 +883,10 @@ export default async function LocalityPage({
             <div className="flex justify-between gap-4">
               <span className="text-gray-500">Tier</span>
               <span className="text-right font-medium">{getTierLabel(tier)}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Cluster</span>
+              <span className="text-right font-medium">{localityClusterLabel}</span>
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-gray-500">Zone</span>
@@ -912,6 +1046,43 @@ export default async function LocalityPage({
         </section>
       ) : null}
 
+      <section className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 lg:col-span-2">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {locality.name} inside the Jaipur locality graph
+          </h2>
+          <p className="mt-3 text-gray-700 leading-7">
+            {localityClusterDescription}
+          </p>
+
+          {comparisonPrompts.length > 0 ? (
+            <div className="mt-5 flex flex-wrap gap-3">
+              {comparisonPrompts.map((item, idx) => (
+                <a
+                  key={`${locality.slug}-prompt-${idx}`}
+                  href={item.href}
+                  className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  {item.label} →
+                </a>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-6">
+          <h2 className="text-xl font-semibold text-gray-900">
+            Locality cluster
+          </h2>
+          <p className="mt-3 text-sm text-gray-700">
+            {localityClusterLabel}
+          </p>
+          <p className="mt-3 text-sm text-gray-600">
+            This helps JaipurCircle connect {locality.name} to relevant nearby neighborhoods, comparison queries, and broader city discovery loops.
+          </p>
+        </div>
+      </section>
+
       <LocalityDifferentiation
         name={locality.name}
         bestFor={locality.best_for}
@@ -919,7 +1090,7 @@ export default async function LocalityPage({
         knownFor={locality.known_for}
       />
 
-      {nearbyLocalities.length > 0 ? (
+      {normalizedNearby.length > 0 ? (
         <section className="mt-8 rounded-2xl border border-gray-200 bg-white p-6">
           <h2 className="text-xl font-semibold text-gray-900">
             Compare {locality.name} with nearby Jaipur localities
@@ -929,31 +1100,33 @@ export default async function LocalityPage({
           </p>
 
           <div className="mt-5 flex flex-wrap gap-3">
-            {nearbyLocalities.slice(0, 8).map((item: any, idx: number) => {
-              const nearbySlug =
-                typeof item === "string"
-                  ? item
-                  : item?.slug || item?.locality_slug || null;
+            {normalizedNearby.slice(0, 8).map((item, idx) => (
+              <a
+                key={`${locality.slug}-compare-${idx}`}
+                href={`/jaipur/${item.slug}`}
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Compare with {item.name} →
+              </a>
+            ))}
+          </div>
 
-              const nearbyName =
-                typeof item === "string"
-                  ? item
-                      .replace(/-/g, " ")
-                      .replace(/\b\w/g, (m: string) => m.toUpperCase())
-                  : item?.name || item?.locality_name || nearbySlug;
-
-              if (!nearbySlug) return null;
-
-              return (
-                <a
-                  key={`${locality.slug}-compare-${idx}`}
-                  href={`/jaipur/${nearbySlug}`}
-                  className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  Compare with {nearbyName} →
-                </a>
-              );
-            })}
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {normalizedNearby.slice(0, 4).map((item, idx) => (
+              <a
+                key={`${locality.slug}-nearby-card-${idx}`}
+                href={`/jaipur/${item.slug}`}
+                className="rounded-2xl border border-gray-200 p-4 transition hover:shadow-sm"
+              >
+                <div className="text-sm text-gray-500">Nearby locality</div>
+                <div className="mt-1 font-semibold text-gray-900">
+                  {item.name}
+                </div>
+                <div className="mt-3 text-sm text-blue-600">
+                  Explore locality →
+                </div>
+              </a>
+            ))}
           </div>
         </section>
       ) : null}
