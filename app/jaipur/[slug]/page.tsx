@@ -390,6 +390,23 @@ function renderChipList(items: string[]) {
   ));
 }
 
+function getIntentClusters(locality: any) {
+  return [
+    {
+      title: `Things to do in ${locality.name}`,
+      items: toArray(locality?.best_for),
+    },
+    {
+      title: `What ${locality.name} is known for`,
+      items: toArray(locality?.known_for),
+    },
+    {
+      title: `Vibe of ${locality.name}`,
+      items: toArray(locality?.vibe_tags),
+    },
+  ].filter((cluster) => cluster.items.length > 0);
+}
+
 function getIdentitySummary({
   locality,
   tier,
@@ -633,6 +650,7 @@ export default async function LocalityPage({
   const bestFor = toArray(locality?.best_for);
   const vibeTags = toArray(locality?.vibe_tags);
   const landmarks = toArray(locality?.landmarks);
+  const intentClusters = getIntentClusters(locality);
 
   const baseIntro =
     locality.description ||
@@ -736,6 +754,37 @@ export default async function LocalityPage({
           </a>
         </div>
       </header>
+
+      {intentClusters.length > 0 ? (
+        <section className="mt-10 rounded-2xl border border-gray-200 bg-white p-6">
+          <h2 className="text-xl font-semibold text-gray-900">
+            Explore {locality.name}
+          </h2>
+
+          <p className="mt-2 text-sm text-gray-600">
+            Quick ways to understand what this locality is known for and how people typically experience it.
+          </p>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+            {intentClusters.map((cluster, i) => (
+              <div
+                key={`${locality.slug}-intent-${i}`}
+                className="rounded-xl border border-gray-100 p-4"
+              >
+                <h3 className="font-semibold text-gray-900 mb-2">
+                  {cluster.title}
+                </h3>
+
+                <ul className="text-sm text-gray-700 space-y-1">
+                  {cluster.items.map((item: string, idx: number) => (
+                    <li key={idx}>• {item}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="rounded-2xl border border-gray-200 bg-white p-6 lg:col-span-2">
