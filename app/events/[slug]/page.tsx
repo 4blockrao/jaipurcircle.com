@@ -53,6 +53,24 @@ function prettyText(value?: string | null) {
     .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
+function dedupeById(items: any[] | null | undefined) {
+  const seen = new Set<string>();
+  const out: any[] = [];
+
+  for (const item of items || []) {
+    const id = item?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(item);
+  }
+
+  return out;
+}
+
+function eventCardDate(event: any) {
+  return formatDate(getEventDate(event)) || "Date TBA";
+}
+
 async function getEventBySlug(supabase: any, slug: string) {
   if (!slug) return null;
 
@@ -90,7 +108,7 @@ async function getLocalityForEvent(supabase: any, event: any) {
     if (event?.locality_id) {
       const { data } = await supabase
         .from("localities")
-        .select("id,name,slug")
+        .select("id,name,slug,nearby_localities")
         .eq("id", event.locality_id)
         .maybeSingle();
 
@@ -104,7 +122,7 @@ async function getLocalityForEvent(supabase: any, event: any) {
 
     let { data } = await supabase
       .from("localities")
-      .select("id,name,slug")
+      .select("id,name,slug,nearby_localities")
       .eq("slug", slug)
       .maybeSingle();
 
@@ -112,7 +130,7 @@ async function getLocalityForEvent(supabase: any, event: any) {
 
     ({ data } = await supabase
       .from("localities")
-      .select("id,name,slug")
+      .select("id,name,slug,nearby_localities")
       .ilike("name", String(localityValue).trim())
       .maybeSingle());
 
@@ -127,7 +145,7 @@ async function getVenueForEvent(supabase: any, event: any) {
     if (event?.venue_id) {
       const { data } = await supabase
         .from("venues")
-        .select("id,name,slug")
+        .select("id,name,slug,locality_id")
         .eq("id", event.venue_id)
         .maybeSingle();
 
@@ -138,7 +156,7 @@ async function getVenueForEvent(supabase: any, event: any) {
 
     const { data } = await supabase
       .from("venues")
-      .select("id,name,slug")
+      .select("id,name,slug,locality_id")
       .ilike("name", String(event.venue_name).trim())
       .limit(1);
 
@@ -146,6 +164,223 @@ async function getVenueForEvent(supabase: any, event: any) {
   } catch {
     return null;
   }
+}
+
+async function getSameLocalityUpcomingEvents(
+  supabase: any,
+  {
+    event,
+    locality,
+    limit = 6,
+  }: {
+    event: any;
+    locality: any;
+    limit?: number;
+  }
+) {
+  try {
+    if (!locality?.id) return [];
+
+    const nowIso = new Date().toISOString();
+
+    const { data } = await supabase
+      .from("events")
+      .select("id,title,slug,start_time,start_date,locality,locality_id")
+      .in("status", ["published", "upcoming"])
+      .eq("editorial_status", "published")
+      .eq("index_status", "index")
+      .eq("locality_id", locality.id)
+      .gte("start_date", nowIso)
+      .neq("id", event.id)
+      .order("start_date", { ascending: true })
+      .limit(limit);
+
+    return data || [];
+  } catch {
+    return [];
+  }
+}
+
+async function getNearbyLocalityUpcomingEvents(
+  supabase: any,
+  {
+    event,
+    locality,
+    limit = 6,
+  }: {
+    event: any;
+    locality: any;
+    limit?: number;
+  }
+) {
+  try {
+    const nearby = Array.isArray(locality?.nearby_localities)
+      ? locality.nearby_localities
+      : [];
+
+    const nearbySlugs = nearby
+      .map((item: any) =>
+        typeof item === "string"
+          ? item
+          : item?.slug || item?.locality_slug || null
+      )
+      .filter(Boolean)
+      .slice(0, 8);
+
+    if (!nearbySlugs.length) return [];
+
+    const { data: nearbyLocalities } = await supabase
+      .from("localities")
+      .select("id,name,slug")
+      .in("slug", nearbySlugs);
+
+    const nearbyIds = (nearbyLocalities || []).map((row: any) => row.id).filter(Boolean);
+
+    if (!nearbyIds.length) return [];
+
+    const nowIso = new Date().toISOString();
+
+    const { data } = await supabase
+      .from("events")
+      .select("id,title,slug,start_time,start_date,locality,locality_id")
+      .in("status", ["published", "upcoming"])
+      .eq("editorial_status", "published")
+      .eq("index_status", "index")
+      .in("locality_id", nearbyIds)
+      .gte("start_date", nowIso)
+      .neq("id", event.id)
+      .order("start_date", { ascending: true })
+      .limit(limit * 2);
+
+    const localityNameById = new Map(
+      (nearbyLocalities || []).map((row: any) => [row.id, row.name])
+    );
+
+    return dedupeById(
+      (data || []).map((item: any) => ({
+        ...item,
+        locality_name:
+          localityNameById.get(item.locality_id) || prettyText(item.locality),
+      }))
+    ).slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+async function getRelatedUpcomingEvents(
+  supabase: any,
+  {
+    event,
+    locality,
+    venue,
+    limit = 6,
+  }: {
+    event: any;
+    locality: any;
+    venue: any;
+    limit?: number;
+  }
+) {
+  try {
+    const nowIso = new Date().toISOString();
+    let combined: any[] = [];
+
+    if (venue?.id) {
+      const { data } = await supabase
+        .from("events")
+        .select("id,title,slug,start_time,start_date,locality,locality_id")
+        .in("status", ["published", "upcoming"])
+        .eq("editorial_status", "published")
+        .eq("index_status", "index")
+        .eq("venue_id", venue.id)
+        .gte("start_date", nowIso)
+        .neq("id", event.id)
+        .order("start_date", { ascending: true })
+        .limit(limit * 2);
+
+      combined = combined.concat(data || []);
+    }
+
+    if (locality?.id) {
+      const { data } = await supabase
+        .from("events")
+        .select("id,title,slug,start_time,start_date,locality,locality_id")
+        .in("status", ["published", "upcoming"])
+        .eq("editorial_status", "published")
+        .eq("index_status", "index")
+        .eq("locality_id", locality.id)
+        .gte("start_date", nowIso)
+        .neq("id", event.id)
+        .order("start_date", { ascending: true })
+        .limit(limit * 2);
+
+      combined = combined.concat(data || []);
+    }
+
+    return dedupeById(combined).slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+async function getVenueArchiveEvents(
+  supabase: any,
+  {
+    event,
+    venue,
+    limit = 6,
+  }: {
+    event: any;
+    venue: any;
+    limit?: number;
+  }
+) {
+  try {
+    if (!venue?.id) return [];
+
+    const nowIso = new Date().toISOString();
+
+    const { data } = await supabase
+      .from("events")
+      .select("id,title,slug,start_time,start_date,locality,locality_id")
+      .in("status", ["published", "upcoming"])
+      .eq("editorial_status", "published")
+      .eq("index_status", "index")
+      .eq("venue_id", venue.id)
+      .lt("start_date", nowIso)
+      .neq("id", event.id)
+      .order("start_date", { ascending: false })
+      .limit(limit);
+
+    return data || [];
+  } catch {
+    return [];
+  }
+}
+
+function EventLinkCard({
+  event,
+  showLocality = false,
+}: {
+  event: any;
+  showLocality?: boolean;
+}) {
+  return (
+    <a
+      href={`/events/${event.slug}`}
+      className="block rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+    >
+      <h3 className="text-lg font-semibold text-gray-900">{event.title}</h3>
+      <p className="mt-2 text-sm text-gray-600">{eventCardDate(event)}</p>
+      {showLocality ? (
+        <p className="mt-1 text-sm text-gray-500">
+          {event.locality_name || prettyText(event.locality) || "Jaipur"}
+        </p>
+      ) : null}
+      <div className="mt-4 text-sm font-medium text-blue-600">View event →</div>
+    </a>
+  );
 }
 
 export async function generateMetadata({
@@ -204,9 +439,38 @@ export default async function EventPage({
     getVenueForEvent(supabase, event),
   ]);
 
+  const [sameLocalityEvents, nearbyLocalityEvents, relatedEvents, venueArchive] =
+    await Promise.all([
+      getSameLocalityUpcomingEvents(supabase, {
+        event,
+        locality,
+        limit: 6,
+      }),
+      getNearbyLocalityUpcomingEvents(supabase, {
+        event,
+        locality,
+        limit: 6,
+      }),
+      getRelatedUpcomingEvents(supabase, {
+        event,
+        locality,
+        venue,
+        limit: 6,
+      }),
+      getVenueArchiveEvents(supabase, {
+        event,
+        venue,
+        limit: 6,
+      }),
+    ]);
+
   const closed = isEventClosed(event);
   const localityHref = locality?.slug ? `/jaipur/${locality.slug}` : null;
   const venueHref = venue?.slug ? `/venues/${venue.slug}` : null;
+
+  const archiveIntro = closed
+    ? `This event has ended, but JaipurCircle keeps event pages live as permanent memory. Use the discovery links below to continue exploring related upcoming events, the venue, and the surrounding locality.`
+    : `This event page is designed to be more than a detail page. It connects the event to its locality, venue, and surrounding discovery graph so users and search engines can continue exploring Jaipur meaningfully.`;
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
@@ -251,7 +515,7 @@ export default async function EventPage({
           <p className="mt-4 max-w-2xl text-gray-700 leading-7">
             {event.description ||
               event.seo_blurb ||
-              `${event.title} is listed on JaipurCircle with event details and discovery context.`}
+              `${event.title} is listed on JaipurCircle with event details, venue context, and locality-based discovery links.`}
           </p>
 
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -292,6 +556,19 @@ export default async function EventPage({
             </div>
           </div>
 
+          {closed ? (
+            <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-5">
+              <h2 className="text-lg font-semibold text-gray-900">
+                This event has ended
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-gray-700">
+                JaipurCircle keeps past event pages live so they continue to act
+                as searchable history and discovery nodes. Users can still move
+                into venue pages, locality hubs, and similar upcoming events.
+              </p>
+            </div>
+          ) : null}
+
           <div className="mt-6 flex flex-wrap gap-3">
             {venueHref ? (
               <a
@@ -316,19 +593,6 @@ export default async function EventPage({
               All Jaipur events →
             </a>
           </div>
-
-          {closed ? (
-            <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-5">
-              <h2 className="text-lg font-semibold text-gray-900">
-                This event has ended
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-gray-700">
-                JaipurCircle keeps event pages live as searchable memory so users
-                can continue discovering similar local experiences, venues, and
-                locality hubs over time.
-              </p>
-            </div>
-          ) : null}
         </div>
 
         <div className="overflow-hidden rounded-[2rem] border border-gray-200 bg-white shadow-sm">
@@ -354,6 +618,10 @@ export default async function EventPage({
               <div className="mt-2 font-medium text-gray-900">
                 {locality?.name || prettyText(event?.locality) || "Jaipur"}
               </div>
+              <p className="mt-2 text-sm text-gray-600">
+                This event contributes to the discovery graph of{" "}
+                {locality?.name || prettyText(event?.locality) || "Jaipur"}.
+              </p>
               {localityHref ? (
                 <a
                   href={localityHref}
@@ -371,6 +639,9 @@ export default async function EventPage({
               <div className="mt-2 font-medium text-gray-900">
                 {venue?.name || event?.venue_name || "Venue TBA"}
               </div>
+              <p className="mt-2 text-sm text-gray-600">
+                Venue pages help users continue into more events and location-aware discovery.
+              </p>
               {venueHref ? (
                 <a
                   href={venueHref}
@@ -380,6 +651,97 @@ export default async function EventPage({
                 </a>
               ) : null}
             </div>
+          </div>
+        </section>
+      ) : null}
+
+      <section className="mt-10 rounded-2xl border border-gray-200 bg-white p-6">
+        <h2 className="text-xl font-semibold text-gray-900">
+          Event history & discovery
+        </h2>
+        <p className="mt-3 text-gray-700 leading-7">{archiveIntro}</p>
+      </section>
+
+      {sameLocalityEvents.length > 0 ? (
+        <section className="mt-12">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-900">
+                More events in {locality?.name || prettyText(event?.locality) || "this area"}
+              </h2>
+              <p className="mt-2 text-sm text-gray-600">
+                Continue exploring exact locality-linked upcoming events.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {sameLocalityEvents.map((item: any) => (
+              <EventLinkCard key={item.id} event={item} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {nearbyLocalityEvents.length > 0 ? (
+        <section className="mt-12">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-900">
+                Events near {locality?.name || prettyText(event?.locality) || "this area"}
+              </h2>
+              <p className="mt-2 text-sm text-gray-600">
+                Nearby localities help users keep moving through Jaipur’s event graph.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {nearbyLocalityEvents.map((item: any) => (
+              <EventLinkCard key={item.id} event={item} showLocality />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {relatedEvents.length > 0 ? (
+        <section className="mt-12">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-900">
+                Similar upcoming events
+              </h2>
+              <p className="mt-2 text-sm text-gray-600">
+                Related events based on venue and locality relevance.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {relatedEvents.map((item: any) => (
+              <EventLinkCard key={item.id} event={item} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {closed && venueArchive.length > 0 ? (
+        <section className="mt-12">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-900">
+                More event history at {venue?.name || event?.venue_name || "this venue"}
+              </h2>
+              <p className="mt-2 text-sm text-gray-600">
+                Archive continuity helps this event page compound as a permanent search and discovery asset.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {venueArchive.map((item: any) => (
+              <EventLinkCard key={item.id} event={item} />
+            ))}
           </div>
         </section>
       ) : null}
