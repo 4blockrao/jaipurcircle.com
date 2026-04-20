@@ -83,13 +83,33 @@ function dedupeById(items: any[] | null | undefined) {
 }
 
 async function getEventBySlug(supabase: any, slug: string) {
-  const { data } = await supabase
+  let { data } = await supabase
     .from("events")
     .select("*")
     .eq("slug", slug)
     .maybeSingle();
 
-  return data || null;
+  if (data) return data;
+
+  const cleaned = slug.replace(/-\d{4}-\d{2}-\d{2}$/, "");
+
+  if (cleaned !== slug) {
+    const { data: fallback } = await supabase
+      .from("events")
+      .select("*")
+      .eq("slug", cleaned)
+      .maybeSingle();
+
+    if (fallback) return fallback;
+  }
+
+  const { data: loose } = await supabase
+    .from("events")
+    .select("*")
+    .ilike("slug", `%${cleaned}%`)
+    .limit(1);
+
+  return loose?.[0] || null;
 }
 
 async function getLocalityForEvent(supabase: any, event: any) {
@@ -244,10 +264,12 @@ async function getMoreFromVenueArchive(
   return data || [];
 }
 
-export async function generateMetadata(
-  props: { params: Promise<{ slug: string }> }
-) {
-  const { slug } = await props.params;
+export async function generateMetadata({
+  params,
+}: {
+  params: { slug: string };
+}) {
+  const slug = params.slug;
   const supabase = createServerSupabaseClient();
 
   const event = await getEventBySlug(supabase, slug);
@@ -285,9 +307,9 @@ export async function generateMetadata(
 export default async function EventPage({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: { slug: string };
 }) {
-  const { slug } = await params;
+  const slug = params.slug;
   const supabase = createServerSupabaseClient();
 
   const event = await getEventBySlug(supabase, slug);
@@ -470,7 +492,7 @@ export default async function EventPage({
         </div>
       </section>
 
-      {(localityHref || venueHref) && (
+      {(localityHref || venueHref) ? (
         <section className="mt-10 rounded-2xl border border-gray-200 bg-white p-6">
           <h2 className="text-xl font-semibold text-gray-900">
             Event context
@@ -511,7 +533,7 @@ export default async function EventPage({
             </div>
           </div>
         </section>
-      )}
+      ) : null}
 
       {relatedUpcoming.length > 0 ? (
         <section className="mt-12">
