@@ -54,6 +54,8 @@ function prettyText(value?: string | null) {
 }
 
 async function getEventBySlug(supabase: any, slug: string) {
+  if (!slug) return null;
+
   let { data } = await supabase
     .from("events")
     .select("*")
@@ -149,9 +151,9 @@ async function getVenueForEvent(supabase: any, event: any) {
 export async function generateMetadata({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }) {
-  const slug = params.slug;
+  const { slug } = await params;
   const supabase = createServerSupabaseClient();
 
   const event = await getEventBySlug(supabase, slug);
@@ -189,9 +191,9 @@ export async function generateMetadata({
 export default async function EventPage({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }) {
-  const slug = params.slug;
+  const { slug } = await params;
   const supabase = createServerSupabaseClient();
 
   const event = await getEventBySlug(supabase, slug);
