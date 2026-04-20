@@ -1,218 +1,1426 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
+import { createServerSupabaseClient } from "@/lib/supabase";
+import LocalityEventGrid from "@/components/locality/LocalityEventGrid";
+import {
+  getPastEventsForLocality,
+  getUpcomingEventsForLocality,
+  getVenuesForLocality,
+} from "@/lib/events/queries";
+import CivicFacts from "@/components/locality/CivicFacts";
+import NearbyLocalities from "@/components/locality/NearbyLocalities";
+import LocalityIntentMatrix from "@/components/locality/LocalityIntentMatrix";
+import LocalityFAQ from "@/components/locality/LocalityFAQ";
+import LocalityDifferentiation from "@/components/locality/LocalityDifferentiation";
 
-const API = process.env.NEXT_PUBLIC_API_BASE!;
+export const dynamic = "force-dynamic";
 
-async function getLocality(slug: string) {
-  const res = await fetch(`${API}/locality-ssr?slug=${slug}`, {
-    cache: "no-store",
-  });
+type LocalityTier = "strong" | "developing" | "thin";
 
-  if (!res.ok) return null;
-  return res.json();
+type EventsSectionCopy = {
+  heading: string;
+  description: string;
+  emptyText: string;
+};
+
+type VenuesSectionCopy = {
+  heading: string;
+  description: string;
+  emptyText: string;
+};
+
+type NearbyLocalityLike =
+  | string
+  | {
+      slug?: string;
+      name?: string;
+      locality_slug?: string;
+      locality_name?: string;
+    };
+
+export async function generateMetadata(
+  props: { params: Promise<{ slug: string }> }
+) {
+  const { slug } = await props.params;
+  const supabase = createServerSupabaseClient();
+
+  const { data: locality } = await supabase
+    .from("localities")
+    .select("name, meta_title, meta_description, should_index")
+    .eq("slug", slug)
+    .single();
+
+  if (!locality || !locality.should_index) {
+    return {
+      title: "Locality not found | JaipurCircle",
+    };
+  }
+
+  return {
+    title:
+      locality.meta_title ||
+      `${locality.name} Jaipur – Events, Venues & Things to Do | JaipurCircle`,
+    description:
+      locality.meta_description ||
+      `Discover events, venues, and things to do in ${locality.name}, Jaipur.`,
+    alternates: {
+      canonical: `https://www.jaipurcircle.com/jaipur/${slug}`,
+    },
+    openGraph: {
+      title:
+        locality.meta_title ||
+        `${locality.name} Jaipur – Events, Venues & Things to Do`,
+      description:
+        locality.meta_description ||
+        `Discover events, venues, and things to do in ${locality.name}, Jaipur.`,
+      url: `https://www.jaipurcircle.com/jaipur/${slug}`,
+    },
+  };
 }
 
-function getIntentClusters(locality: any) {
+function countItems(items: any[] | null | undefined) {
+  return Array.isArray(items) ? items.length : 0;
+}
+
+function normalizeSlugText(value?: string | null) {
+  return String(value || "")
+    .replace(/-/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function eventMatchesLocality(event: any, locality: any) {
+  if (!event || !locality) return false;
+  if (event?.locality_id && event.locality_id === locality.id) return true;
+
+  const eventLocality = normalizeSlugText(event?.locality);
+  const localitySlug = normalizeSlugText(locality?.slug);
+  const localityName = normalizeSlugText(locality?.name);
+
+  return !!eventLocality && (eventLocality === localitySlug || eventLocality === localityName);
+}
+
+function venueMatchesLocality(venue: any, locality: any) {
+  if (!venue || !locality) return false;
+  return !!venue?.locality_id && venue.locality_id === locality.id;
+}
+
+function dedupeById(items: any[] | null | undefined) {
+  const seen = new Set<string>();
+  const out: any[] = [];
+
+  for (const item of items || []) {
+    const id = item?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(item);
+  }
+
+  return out;
+}
+
+function deriveLocalityTier({
+  exactUpcomingCount,
+  pastCount,
+  exactVenueCount,
+}: {
+  exactUpcomingCount: number;
+  pastCount: number;
+  exactVenueCount: number;
+}): LocalityTier {
+  if (
+    exactUpcomingCount >= 3 ||
+    exactVenueCount >= 4 ||
+    (exactUpcomingCount >= 2 && exactVenueCount >= 2) ||
+    (pastCount >= 6 && exactVenueCount >= 2)
+  ) {
+    return "strong";
+  }
+
+  if (exactUpcomingCount >= 1 || exactVenueCount >= 1 || pastCount >= 1) {
+    return "developing";
+  }
+
+  return "thin";
+}
+
+function getTierLabel(tier: LocalityTier) {
+  if (tier === "strong") return "Strong Hub";
+  if (tier === "developing") return "Developing Hub";
+  return "Coverage Seed";
+}
+
+function getPrimaryEventsSectionCopy({
+  tier,
+  localityName,
+  exactUpcomingCount,
+}: {
+  tier: LocalityTier;
+  localityName: string;
+  exactUpcomingCount: number;
+}): EventsSectionCopy {
+  if (tier === "strong") {
+    return {
+      heading: `Upcoming events in ${localityName}`,
+      description: `Discover upcoming events, experiences, and gatherings directly connected to ${localityName}, Jaipur.`,
+      emptyText: `No upcoming events are currently linked to ${localityName}.`,
+    };
+  }
+
+  if (tier === "developing") {
+    return {
+      heading:
+        exactUpcomingCount > 0
+          ? `Upcoming events in ${localityName}`
+          : `Popular upcoming events near ${localityName}`,
+      description:
+        exactUpcomingCount > 0
+          ? `${localityName} already has exact event coverage, and JaipurCircle will keep strengthening this locality’s own event graph over time.`
+          : `There may not be enough exact locality-tagged events yet, so this section shows relevant upcoming Jaipur events around and beyond ${localityName}.`,
+      emptyText:
+        exactUpcomingCount > 0
+          ? `No upcoming events are currently linked to ${localityName}.`
+          : `No relevant upcoming events were found near ${localityName} right now.`,
+    };
+  }
+
+  return {
+    heading: `Explore nearby events from ${localityName}`,
+    description: `${localityName} is still building exact event density, so JaipurCircle surfaces nearby and city-wide events to keep this locality page useful.`,
+    emptyText: `No nearby or city-wide upcoming events are available from ${localityName} right now.`,
+  };
+}
+
+function getFallbackEventsSectionCopy(localityName: string): EventsSectionCopy {
+  return {
+    heading: `More events around ${localityName}`,
+    description: `These are relevant nearby or broader Jaipur events that complement the exact locality feed for ${localityName}.`,
+    emptyText: `No additional nearby events are available around ${localityName} right now.`,
+  };
+}
+
+function getPrimaryArchiveSectionCopy({
+  tier,
+  localityName,
+  exactPastCount,
+}: {
+  tier: LocalityTier;
+  localityName: string;
+  exactPastCount: number;
+}): EventsSectionCopy {
+  if (tier === "strong") {
+    return {
+      heading: `Event history in ${localityName}`,
+      description:
+        exactPastCount > 0
+          ? `JaipurCircle preserves exact event memory for ${localityName}, helping this locality page compound into a stronger long-term archive.`
+          : `JaipurCircle is building a permanent event memory layer for ${localityName}, so this locality can compound over time rather than reset after each cycle.`,
+      emptyText: `No exact past event archive is currently available for ${localityName}.`,
+    };
+  }
+
+  if (tier === "developing") {
+    return {
+      heading: `Event history in ${localityName}`,
+      description:
+        exactPastCount > 0
+          ? `JaipurCircle keeps past events visible for ${localityName} wherever possible so locality pages retain memory and search value over time.`
+          : `Historical locality memory for ${localityName} is still developing, but JaipurCircle is designed to preserve relevant archive value as inventory grows.`,
+      emptyText: `No exact past event archive is currently available for ${localityName}.`,
+    };
+  }
+
+  return {
+    heading: `Archive memory for ${localityName}`,
+    description: `${localityName} is still thin, but JaipurCircle is structured to preserve locality-linked event memory as the page matures over time.`,
+    emptyText: `No exact past event archive is currently available for ${localityName}.`,
+  };
+}
+
+function getArchiveFallbackSectionCopy(localityName: string): EventsSectionCopy {
+  return {
+    heading: `Related past events around ${localityName}`,
+    description: `These older events extend the locality memory layer for ${localityName} using nearby or broader Jaipur archive relevance.`,
+    emptyText: `No related past event memory is currently available around ${localityName}.`,
+  };
+}
+
+function getPrimaryVenuesSectionCopy({
+  tier,
+  localityName,
+  exactVenueCount,
+}: {
+  tier: LocalityTier;
+  localityName: string;
+  exactVenueCount: number;
+}): VenuesSectionCopy {
+  if (tier === "strong") {
+    if (exactVenueCount > 0) {
+      return {
+        heading: `Popular venues in ${localityName}`,
+        description: `Explore venues directly connected to this locality and use them as discovery hubs for events in Jaipur.`,
+        emptyText: `No exact venue cluster is available for ${localityName} yet.`,
+      };
+    }
+
+    return {
+      heading: `Popular venues around ${localityName}`,
+      description: `${localityName} already has strong event coverage, but exact venue mapping is still catching up. For now, JaipurCircle shows nearby and supporting venue discovery.`,
+      emptyText: `No nearby venue discovery is available around ${localityName} yet.`,
+    };
+  }
+
+  if (tier === "developing") {
+    if (exactVenueCount > 0) {
+      return {
+        heading: `Popular venues in ${localityName}`,
+        description: `Explore venues connected to this locality and use them as discovery hubs for events in Jaipur.`,
+        emptyText: `No exact venue cluster is available for ${localityName} yet.`,
+      };
+    }
+
+    return {
+      heading: `Popular venues around ${localityName}`,
+      description: `Exact venue coverage for ${localityName} is still growing, so this section shows nearby or broader Jaipur venue discovery.`,
+      emptyText: `No useful venue cluster is available around ${localityName} yet.`,
+    };
+  }
+
+  return {
+    heading: `Useful venues near ${localityName}`,
+    description: `${localityName} is still a thin locality node, so JaipurCircle uses nearby venue discovery to keep this page navigable and useful.`,
+    emptyText: `No nearby venue discovery is available from ${localityName} yet.`,
+  };
+}
+
+function getFallbackVenuesSectionCopy(localityName: string): VenuesSectionCopy {
+  return {
+    heading: `More venues around ${localityName}`,
+    description: `These supporting venues help extend discovery beyond the exact venue graph for ${localityName}.`,
+    emptyText: `No additional nearby venues are available around ${localityName} right now.`,
+  };
+}
+
+function getLocalityAuthorityIntro({
+  tier,
+  localityName,
+  zone,
+  municipality,
+}: {
+  tier: LocalityTier;
+  localityName: string;
+  zone?: string | null;
+  municipality?: string | null;
+}) {
+  const civicContext =
+    zone || municipality
+      ? ` It sits${zone ? ` in the ${zone}` : ""}${
+          municipality ? ` under ${municipality}` : ""
+        } within Jaipur.`
+      : "";
+
+  if (tier === "strong") {
+    return `${localityName} is now one of JaipurCircle’s strongest locality hubs, with meaningful exact event coverage, venue depth, and visible event memory.${civicContext} This page is designed to function as a reliable discovery hub for what is happening in and around ${localityName}, while also helping users navigate related venues, nearby localities, and recurring Jaipur activity.`;
+  }
+
+  if (tier === "developing") {
+    return `${localityName} is an actively developing Jaipur locality hub with growing coverage across events, venues, and local discovery paths.${civicContext} JaipurCircle uses a mix of exact locality inventory and nearby relevant Jaipur discovery to keep this page useful while the locality graph continues to mature.`;
+  }
+
+  return `${localityName} is currently in an early coverage phase on JaipurCircle.${civicContext} This page still matters as part of Jaipur’s full locality map, and it will gradually become richer as exact events, venues, civic detail, and nearby discovery signals continue to accumulate.`;
+}
+
+function getAuthorityHighlights({
+  tier,
+  exactUpcomingCount,
+  exactVenueCount,
+  exactPastCount,
+}: {
+  tier: LocalityTier;
+  exactUpcomingCount: number;
+  exactVenueCount: number;
+  exactPastCount: number;
+}) {
+  if (tier === "strong") {
+    return [
+      `${exactUpcomingCount} exact upcoming event${
+        exactUpcomingCount === 1 ? "" : "s"
+      } currently mapped`,
+      `${exactVenueCount} exact venue${exactVenueCount === 1 ? "" : "s"} contributing to locality strength`,
+      `${exactPastCount} archived exact event${exactPastCount === 1 ? "" : "s"} building locality memory`,
+    ];
+  }
+
+  if (tier === "developing") {
+    return [
+      `${exactUpcomingCount} exact upcoming event${
+        exactUpcomingCount === 1 ? "" : "s"
+      } currently mapped`,
+      `${exactVenueCount} exact venue${exactVenueCount === 1 ? "" : "s"} currently linked`,
+      `${exactPastCount} archived exact event${exactPastCount === 1 ? "" : "s"} supporting locality history`,
+    ];
+  }
+
   return [
-    {
-      title: `Things to do in ${locality.name}`,
-      items: locality.best_for || [],
-    },
-    {
-      title: `What ${locality.name} is known for`,
-      items: locality.known_for || [],
-    },
-    {
-      title: `Vibe of ${locality.name}`,
-      items: locality.vibe_tags || [],
-    },
+    "Full locality coverage track retained even while this page is still thin",
+    "Nearby events and venues help keep discovery useful in early phases",
+    "Archive memory will strengthen as exact locality history accumulates",
   ];
 }
 
-export default async function LocalityPage({ params }: any) {
+function getStrongHubEditorialBlock({
+  localityName,
+  exactUpcomingCount,
+  exactVenueCount,
+  exactPastCount,
+}: {
+  localityName: string;
+  exactUpcomingCount: number;
+  exactVenueCount: number;
+  exactPastCount: number;
+}) {
+  return {
+    heading: `${localityName} as a Jaipur discovery hub`,
+    body: `${localityName} is no longer just a placeholder locality page. It now has enough exact inventory to behave like a real hyperlocal discovery node, with ${exactUpcomingCount} exact upcoming event${exactUpcomingCount === 1 ? "" : "s"}, ${exactVenueCount} exact venue${exactVenueCount === 1 ? "" : "s"}, and ${exactPastCount} archived exact event${exactPastCount === 1 ? "" : "s"} contributing to local memory. The next goal for this hub is quality compounding: stronger venue context, richer locality comparisons, more authoritative civic detail, and tighter event curation over time.`,
+  };
+}
+
+function toArray(value: any): string[] {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function renderChipList(items: string[]) {
+  return items.map((item, idx) => (
+    <span
+      key={`${item}-${idx}`}
+      className="rounded-full bg-gray-100 px-3 py-1.5 text-sm text-gray-700"
+    >
+      {item}
+    </span>
+  ));
+}
+
+function getIdentitySummary({
+  locality,
+  tier,
+  exactUpcomingCount,
+  exactVenueCount,
+  exactPastCount,
+}: {
+  locality: any;
+  tier: LocalityTier;
+  exactUpcomingCount: number;
+  exactVenueCount: number;
+  exactPastCount: number;
+}) {
+  const bestFor = toArray(locality?.best_for);
+  const vibeTags = toArray(locality?.vibe_tags);
+  const knownFor = toArray(locality?.known_for);
+
+  if (tier === "strong") {
+    return `${locality.name} is currently one of JaipurCircle’s most developed locality hubs, combining ${exactUpcomingCount} exact upcoming event${exactUpcomingCount === 1 ? "" : "s"}, ${exactVenueCount} exact venue${exactVenueCount === 1 ? "" : "s"}, and ${exactPastCount} archived exact event${exactPastCount === 1 ? "" : "s"} with a clearer local identity around ${knownFor.slice(0, 2).join(", ") || "city activity"}, ${bestFor.slice(0, 2).join(", ") || "everyday discovery"}, and a ${vibeTags.slice(0, 2).join(", ") || "distinct"} character.`;
+  }
+
+  if (tier === "developing") {
+    return `${locality.name} is developing into a more defined Jaipur locality hub. The page already shows visible discovery signals, and its identity is beginning to form around ${knownFor.slice(0, 2).join(", ") || "emerging local relevance"}, ${bestFor.slice(0, 2).join(", ") || "practical use cases"}, and a ${vibeTags.slice(0, 2).join(", ") || "growing"} personality.`;
+  }
+
+  return `${locality.name} is still early in JaipurCircle’s locality graph, but its identity is starting to emerge through civic context, nearby discovery, and initial signals around ${knownFor.slice(0, 2).join(", ") || "place-based relevance"}. Over time, this page will become more differentiated as events, venues, and locality attributes deepen.`;
+}
+
+function getWhyChooseThisLocality({
+  locality,
+  tier,
+}: {
+  locality: any;
+  tier: LocalityTier;
+}) {
+  const bestFor = toArray(locality?.best_for);
+  const vibeTags = toArray(locality?.vibe_tags);
+  const knownFor = toArray(locality?.known_for);
+
+  const points: string[] = [];
+
+  if (bestFor.length > 0) {
+    points.push(`Best suited for ${bestFor.slice(0, 3).join(", ")}`);
+  }
+
+  if (knownFor.length > 0) {
+    points.push(`Known locally for ${knownFor.slice(0, 3).join(", ")}`);
+  }
+
+  if (vibeTags.length > 0) {
+    points.push(`Overall vibe: ${vibeTags.slice(0, 3).join(", ")}`);
+  }
+
+  if (tier === "strong") {
+    points.push("High-confidence discovery hub with visible event and venue depth");
+  } else if (tier === "developing") {
+    points.push("Growing locality with meaningful discovery signals already visible");
+  } else {
+    points.push("Early-stage locality page with room to compound as data density improves");
+  }
+
+  return points.slice(0, 4);
+}
+
+function getNearbyLocalityComparisonIntro(localityName: string) {
+  return `Users rarely think about Jaipur localities in isolation. This section helps position ${localityName} relative to nearby neighborhoods so the page becomes more useful for local comparison, navigation, and intent-driven discovery.`;
+}
+
+function normalizeNearbyLocalities(items: NearbyLocalityLike[] | null | undefined) {
+  const out: { slug: string; name: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const item of items || []) {
+    const slug =
+      typeof item === "string"
+        ? item
+        : item?.slug || item?.locality_slug || null;
+
+    const name =
+      typeof item === "string"
+        ? item.replace(/-/g, " ").replace(/\b\w/g, (m: string) => m.toUpperCase())
+        : item?.name ||
+          item?.locality_name ||
+          slug?.replace(/-/g, " ").replace(/\b\w/g, (m: string) => m.toUpperCase()) ||
+          "";
+
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    out.push({ slug, name });
+  }
+
+  return out;
+}
+
+function getLocalityClusterLabel(locality: any) {
+  const zone = String(locality?.zone || "").toLowerCase();
+  const municipality = String(locality?.municipality || "").toLowerCase();
+  const name = String(locality?.name || "").toLowerCase();
+
+  if (
+    zone.includes("hawa mahal") ||
+    municipality.includes("hawa mahal") ||
+    name.includes("bazaar") ||
+    name.includes("chaupar") ||
+    name.includes("mahal")
+  ) {
+    return "Old Jaipur / Heritage Cluster";
+  }
+
+  if (
+    zone.includes("vishwakarma") ||
+    zone.includes("jhotwara") ||
+    name.includes("vki") ||
+    name.includes("industrial")
+  ) {
+    return "Industrial / Business Cluster";
+  }
+
+  if (
+    zone.includes("sanganer") ||
+    name.includes("jagatpura") ||
+    name.includes("malviya") ||
+    name.includes("sitapura") ||
+    name.includes("tonk")
+  ) {
+    return "South / Growth Corridor";
+  }
+
+  if (
+    zone.includes("civil lines") ||
+    name.includes("vaishali") ||
+    name.includes("chitrakoot") ||
+    name.includes("nirman") ||
+    name.includes("sodala")
+  ) {
+    return "West / Residential Cluster";
+  }
+
+  if (
+    zone.includes("vidyadhar") ||
+    name.includes("amer") ||
+    name.includes("nahargarh") ||
+    name.includes("jal mahal")
+  ) {
+    return "North / Tourism-Access Cluster";
+  }
+
+  return "Jaipur Locality Network";
+}
+
+function getClusterDescription(locality: any) {
+  const cluster = getLocalityClusterLabel(locality);
+
+  switch (cluster) {
+    case "Old Jaipur / Heritage Cluster":
+      return "This locality belongs to Jaipur’s heritage-heavy urban core, where old-city retail, tourism, landmarks, and traditional market movement create a distinct discovery pattern.";
+    case "Industrial / Business Cluster":
+      return "This locality sits within a business-oriented Jaipur belt shaped by industrial activity, logistics, commercial support services, and practical city movement.";
+    case "South / Growth Corridor":
+      return "This locality is part of Jaipur’s fast-growing southern corridor, where residential expansion, institutions, exhibitions, and new development increasingly shape demand.";
+    case "West / Residential Cluster":
+      return "This locality belongs to Jaipur’s residential-western belt, where family living, retail convenience, food, services, and neighborhood discovery define the area’s utility.";
+    case "North / Tourism-Access Cluster":
+      return "This locality sits within Jaipur’s northern access and tourism-facing belt, where forts, heritage routes, monuments, and visitor movement create distinctive search intent.";
+    default:
+      return "This locality is part of Jaipur’s broader discovery graph, and its strength compounds through nearby localities, civic context, events, venues, and future merchant depth.";
+  }
+}
+
+function getComparisonPrompts(locality: any, nearby: { slug: string; name: string }[]) {
+  const prompts: { label: string; href: string }[] = [];
+
+  for (const item of nearby.slice(0, 4)) {
+    prompts.push({
+      label: `${locality.name} vs ${item.name}`,
+      href: `/jaipur/${item.slug}`,
+    });
+  }
+
+  return prompts;
+}
+
+export default async function LocalityPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const { slug } = await params;
-  const data = await getLocality(slug);
+  const supabase = createServerSupabaseClient();
+  const nowIso = new Date().toISOString();
 
-  if (!data || !data.locality) return notFound();
+  const { data: locality, error } = await supabase
+    .from("localities")
+    .select("*")
+    .eq("slug", slug)
+    .single();
 
-  const locality = data.locality;
-  const exactEvents = data.events_exact ?? [];
-  const nearbyEvents = data.events_nearby ?? [];
-  const venues = data.venues ?? [];
-  const nearbyLocalities = locality.nearby_localities ?? [];
+  if (!locality || error || !locality.should_index) return notFound();
 
-  const intentClusters = getIntentClusters(locality);
+  const [
+    upcomingEventsRaw,
+    pastEventsRaw,
+    venuesRaw,
+    exactUpcomingCountRes,
+    exactVenueCountRes,
+    exactPastCountRes,
+  ] = await Promise.all([
+    getUpcomingEventsForLocality(supabase, {
+      localityId: locality.id,
+      localitySlug: locality.slug,
+      limit: 12,
+    }),
+    getPastEventsForLocality(supabase, {
+      localityId: locality.id,
+      limit: 12,
+    }),
+    getVenuesForLocality(supabase, {
+      localityId: locality.id,
+      localitySlug: locality.slug,
+      limit: 12,
+    }),
+    supabase
+      .from("events")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["published", "upcoming"])
+      .eq("editorial_status", "published")
+      .eq("index_status", "index")
+      .eq("locality_id", locality.id)
+      .gte("start_date", nowIso),
+    supabase
+      .from("venues")
+      .select("id", { count: "exact", head: true })
+      .eq("locality_id", locality.id),
+    supabase
+      .from("events")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["published", "upcoming"])
+      .eq("editorial_status", "published")
+      .eq("index_status", "index")
+      .eq("locality_id", locality.id)
+      .lt("start_date", nowIso),
+  ]);
+
+  const exactUpcomingCount = exactUpcomingCountRes.count || 0;
+  const exactVenueCount = exactVenueCountRes.count || 0;
+  const exactPastCount = exactPastCountRes.count || 0;
+
+  const tier = deriveLocalityTier({
+    exactUpcomingCount,
+    pastCount: exactPastCount,
+    exactVenueCount,
+  });
+
+  const exactUpcomingEvents = dedupeById(
+    (upcomingEventsRaw || []).filter((event: any) => eventMatchesLocality(event, locality))
+  ).slice(0, 6);
+
+  const fallbackUpcomingEvents = dedupeById(
+    (upcomingEventsRaw || []).filter((event: any) => !eventMatchesLocality(event, locality))
+  ).slice(0, 6);
+
+  const exactPastEvents = dedupeById(
+    (pastEventsRaw || []).filter((event: any) => eventMatchesLocality(event, locality))
+  ).slice(0, 6);
+
+  const fallbackPastEvents = dedupeById(
+    (pastEventsRaw || []).filter((event: any) => !eventMatchesLocality(event, locality))
+  ).slice(0, 6);
+
+  const exactVenues = dedupeById(
+    (venuesRaw || []).filter((venue: any) => venueMatchesLocality(venue, locality))
+  ).slice(0, 6);
+
+  const fallbackVenues = dedupeById(
+    (venuesRaw || []).filter((venue: any) => !venueMatchesLocality(venue, locality))
+  ).slice(0, 6);
+
+  const displayedUpcomingEvents =
+    exactUpcomingEvents.length > 0
+      ? exactUpcomingEvents
+      : fallbackUpcomingEvents.slice(0, 6);
+
+  const displayedPastEvents =
+    exactPastEvents.length > 0 ? exactPastEvents : fallbackPastEvents.slice(0, 6);
+
+  const displayedVenueItems =
+    exactVenues.length > 0 ? exactVenues : fallbackVenues.slice(0, 6);
+
+  const displayedUpcomingCount = countItems(displayedUpcomingEvents);
+  const displayedPastCount = countItems(displayedPastEvents);
+  const displayedVenueCount = countItems(displayedVenueItems);
+
+  const primaryEventsSection = getPrimaryEventsSectionCopy({
+    tier,
+    localityName: locality.name,
+    exactUpcomingCount,
+  });
+
+  const fallbackEventsSection = getFallbackEventsSectionCopy(locality.name);
+
+  const primaryArchiveSection = getPrimaryArchiveSectionCopy({
+    tier,
+    localityName: locality.name,
+    exactPastCount,
+  });
+
+  const archiveFallbackSection = getArchiveFallbackSectionCopy(locality.name);
+
+  const primaryVenuesSection = getPrimaryVenuesSectionCopy({
+    tier,
+    localityName: locality.name,
+    exactVenueCount,
+  });
+
+  const fallbackVenuesSection = getFallbackVenuesSectionCopy(locality.name);
+
+  const authorityIntro = getLocalityAuthorityIntro({
+    tier,
+    localityName: locality.name,
+    zone: locality.zone,
+    municipality: locality.municipality,
+  });
+
+  const authorityHighlights = getAuthorityHighlights({
+    tier,
+    exactUpcomingCount,
+    exactVenueCount,
+    exactPastCount,
+  });
+
+  const strongHubBlock =
+    tier === "strong"
+      ? getStrongHubEditorialBlock({
+          localityName: locality.name,
+          exactUpcomingCount,
+          exactVenueCount,
+          exactPastCount,
+        })
+      : null;
+
+  const identitySummary = getIdentitySummary({
+    locality,
+    tier,
+    exactUpcomingCount,
+    exactVenueCount,
+    exactPastCount,
+  });
+
+  const whyChooseThisLocality = getWhyChooseThisLocality({
+    locality,
+    tier,
+  });
+
+  const knownFor = toArray(locality?.known_for);
+  const bestFor = toArray(locality?.best_for);
+  const vibeTags = toArray(locality?.vibe_tags);
+  const landmarks = toArray(locality?.landmarks);
+
+  const baseIntro =
+    locality.description ||
+    locality.seo_blurb ||
+    `${locality.name} is one of Jaipur’s important localities. Explore what is happening here, discover venues, and browse upcoming and past events connected to this area.`;
+
+  const shouldShowFallbackEvents =
+    exactUpcomingEvents.length > 0 &&
+    fallbackUpcomingEvents.length > 0 &&
+    tier !== "thin";
+
+  const shouldShowArchiveFallback =
+    exactPastEvents.length > 0 &&
+    fallbackPastEvents.length > 0 &&
+    tier !== "thin";
+
+  const shouldShowFallbackVenues =
+    exactVenues.length > 0 &&
+    fallbackVenues.length > 0 &&
+    tier !== "thin";
+
+  const normalizedNearby = normalizeNearbyLocalities(
+    Array.isArray(locality?.nearby_localities) ? locality.nearby_localities : []
+  );
+
+  const localityClusterLabel = getLocalityClusterLabel(locality);
+  const localityClusterDescription = getClusterDescription(locality);
+  const comparisonPrompts = getComparisonPrompts(locality, normalizedNearby);
 
   return (
-    <main className="max-w-6xl mx-auto px-4 py-8">
+    <main className="max-w-7xl mx-auto px-4 py-10">
+      <nav className="text-sm text-gray-500">
+        <a href="/" className="hover:text-black">
+          Home
+        </a>
+        <span> &gt; </span>
+        <a href="/jaipur" className="hover:text-black">
+          Jaipur
+        </a>
+        <span> &gt; </span>
+        <span className="text-black">{locality.name}</span>
+      </nav>
 
-      {/* HERO */}
-      <h1 className="text-3xl font-bold mb-2">
-        Things to do in {locality.name}, Jaipur
-      </h1>
+      <header className="mt-6">
+        <h1 className="text-3xl md:text-4xl font-bold">
+          {locality.h1_override || `${locality.name}, Jaipur`}
+        </h1>
 
-      <p className="text-gray-600 mb-6">
-        {locality.seo_blurb}
-      </p>
+        <p className="mt-4 max-w-3xl text-gray-700 leading-7">{baseIntro}</p>
 
-      {/* INTENT CLUSTERS */}
-      <section className="mb-12">
-        <h2 className="text-xl font-semibold mb-4">
-          Explore {locality.name}
+        <div className="mt-5 flex flex-wrap gap-3 text-sm">
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Locality: {locality.name}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Tier: {getTierLabel(tier)}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Cluster: {localityClusterLabel}
+          </span>
+          {locality.zone ? (
+            <span className="rounded-full bg-gray-100 px-4 py-2">
+              Zone: {locality.zone}
+            </span>
+          ) : null}
+          {locality.municipality ? (
+            <span className="rounded-full bg-gray-100 px-4 py-2">
+              Municipality: {locality.municipality}
+            </span>
+          ) : null}
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Exact Local Events: {exactUpcomingCount}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Displayed Events: {displayedUpcomingCount}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Exact Archive Events: {exactPastCount}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Exact Local Venues: {exactVenueCount}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Displayed Venues: {displayedVenueCount}
+          </span>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-3 text-sm">
+          <a
+            href={`/jaipur/${locality.slug}/events`}
+            className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+          >
+            Explore events in {locality.name} →
+          </a>
+
+          <a
+            href={`/jaipur/${locality.slug}/news`}
+            className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+          >
+            Local news →
+          </a>
+
+          <a
+            href={`/jaipur/${locality.slug}/shopping`}
+            className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+          >
+            Shopping & deals →
+          </a>
+        </div>
+      </header>
+
+      <section className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 lg:col-span-2">
+          <h2 className="text-xl font-semibold text-gray-900">
+            About {locality.name}, Jaipur
+          </h2>
+          <p className="mt-3 text-gray-700 leading-7">{authorityIntro}</p>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-6">
+          <h2 className="text-xl font-semibold text-gray-900">
+            Locality snapshot
+          </h2>
+          <div className="mt-4 space-y-3 text-sm text-gray-700">
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Tier</span>
+              <span className="text-right font-medium">{getTierLabel(tier)}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Cluster</span>
+              <span className="text-right font-medium">{localityClusterLabel}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Zone</span>
+              <span className="text-right font-medium">
+                {locality.zone || "—"}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Municipality</span>
+              <span className="text-right font-medium">
+                {locality.municipality || "—"}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Exact upcoming events</span>
+              <span className="text-right font-medium">
+                {exactUpcomingCount}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Displayed upcoming events</span>
+              <span className="text-right font-medium">
+                {displayedUpcomingCount}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Exact archive events</span>
+              <span className="text-right font-medium">{exactPastCount}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Displayed archive events</span>
+              <span className="text-right font-medium">
+                {displayedPastCount}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Exact venues</span>
+              <span className="text-right font-medium">{exactVenueCount}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Displayed venues</span>
+              <span className="text-right font-medium">
+                {displayedVenueCount}
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-8 rounded-2xl border border-gray-200 bg-white p-6">
+        <h2 className="text-xl font-semibold text-gray-900">
+          {locality.name} authority signals
         </h2>
-
-        <div className="grid md:grid-cols-3 gap-4">
-          {intentClusters.map((cluster, i) => (
-            <div key={i} className="border rounded-lg p-4">
-              <h3 className="font-semibold mb-2">
-                {cluster.title}
-              </h3>
-
-              <ul className="text-sm text-gray-700 space-y-1">
-                {cluster.items.map((item: string, idx: number) => (
-                  <li key={idx}>• {item}</li>
-                ))}
-              </ul>
+        <p className="mt-2 text-sm text-gray-600">
+          These signals indicate how this locality is maturing inside JaipurCircle’s city-wide discovery graph.
+        </p>
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {authorityHighlights.map((item, index) => (
+            <div
+              key={`${locality.slug}-authority-${index}`}
+              className="rounded-xl border border-gray-100 p-4 text-sm text-gray-700"
+            >
+              {item}
             </div>
           ))}
         </div>
       </section>
 
-      {/* EVENTS (PRIMARY INTENT DRIVER) */}
-      {exactEvents.length > 0 && (
-        <section className="mb-12">
-          <h2 className="text-xl font-semibold mb-4">
-            Upcoming Events in {locality.name}
+      {strongHubBlock ? (
+        <section className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/40 p-6">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {strongHubBlock.heading}
           </h2>
+          <p className="mt-3 text-gray-700 leading-7">{strongHubBlock.body}</p>
+        </section>
+      ) : null}
 
-          <div className="grid md:grid-cols-2 gap-4">
-            {exactEvents.map((event: any) => (
-              <Link
-                key={event.slug}
-                href={`/events/${event.slug}`}
-                className="border rounded-lg p-4 hover:shadow transition"
+      <section className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 lg:col-span-2">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {locality.name} identity
+          </h2>
+          <p className="mt-3 text-gray-700 leading-7">{identitySummary}</p>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-6">
+          <h2 className="text-xl font-semibold text-gray-900">
+            Why choose {locality.name}
+          </h2>
+          <div className="mt-4 space-y-3">
+            {whyChooseThisLocality.map((item, idx) => (
+              <div
+                key={`${locality.slug}-why-${idx}`}
+                className="rounded-xl border border-gray-100 p-3 text-sm text-gray-700"
               >
-                <h3 className="font-semibold">{event.title}</h3>
-
-                {event.start_time && (
-                  <p className="text-sm text-gray-500">
-                    {event.start_time}
-                  </p>
-                )}
-              </Link>
+                {item}
+              </div>
             ))}
           </div>
-        </section>
-      )}
-
-      {/* NEARBY EVENTS */}
-      {nearbyEvents.length > 0 && (
-        <section className="mb-12">
-          <h2 className="text-xl font-semibold mb-4">
-            More events near {locality.name}
-          </h2>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            {nearbyEvents.map((event: any) => (
-              <Link
-                key={event.slug}
-                href={`/events/${event.slug}`}
-                className="border rounded-lg p-4 hover:shadow transition"
-              >
-                <h3 className="font-semibold">{event.title}</h3>
-
-                {event.locality_name && (
-                  <p className="text-sm text-gray-500">
-                    {event.locality_name}
-                  </p>
-                )}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* VENUES */}
-      {venues.length > 0 && (
-        <section className="mb-12">
-          <h2 className="text-xl font-semibold mb-4">
-            Popular places in {locality.name}
-          </h2>
-
-          <div className="grid md:grid-cols-3 gap-4">
-            {venues.map((venue: any) => (
-              <Link
-                key={venue.slug}
-                href={`/venues/${venue.slug}`}
-                className="border rounded-lg p-4 hover:shadow transition"
-              >
-                <h3 className="font-semibold">{venue.name}</h3>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* NEARBY LOCALITIES */}
-      {nearbyLocalities.length > 0 && (
-        <section className="mb-12">
-          <h2 className="text-xl font-semibold mb-4">
-            Nearby areas to explore
-          </h2>
-
-          <div className="flex flex-wrap gap-2">
-            {nearbyLocalities.map((slug: string) => (
-              <Link
-                key={slug}
-                href={`/jaipur/${slug}`}
-                className="px-3 py-1 border rounded-full text-sm hover:bg-gray-100"
-              >
-                {slug.replace(/-/g, " ")}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* DISCOVERY */}
-      <section className="mb-12">
-        <h2 className="text-xl font-semibold mb-4">
-          Explore Jaipur
-        </h2>
-
-        <div className="grid md:grid-cols-3 gap-4">
-
-          <Link href="/events" className="border p-4 rounded-lg hover:shadow">
-            All Events in Jaipur
-          </Link>
-
-          <Link href="/venues" className="border p-4 rounded-lg hover:shadow">
-            Browse Venues
-          </Link>
-
-          <Link href="/categories" className="border p-4 rounded-lg hover:shadow">
-            Explore Categories
-          </Link>
-
         </div>
       </section>
 
-      {/* SEO PARAGRAPH */}
-      <section className="mt-12">
-        <h2 className="text-xl font-semibold mb-3">
-          About {locality.name}
-        </h2>
+      {(knownFor.length > 0 || bestFor.length > 0 || vibeTags.length > 0 || landmarks.length > 0) ? (
+        <section className="mt-8 rounded-2xl border border-gray-200 bg-white p-6">
+          <h2 className="text-xl font-semibold text-gray-900">
+            Locality signals for {locality.name}
+          </h2>
+          <p className="mt-2 text-sm text-gray-600">
+            These structured signals help explain what {locality.name} is known for, who it suits best, and how it fits into Jaipur’s broader local discovery map.
+          </p>
 
-        <p className="text-gray-700 leading-relaxed">
-          Looking for things to do in {locality.name}, Jaipur? This area is known for{" "}
-          {locality.known_for?.join(", ")} and is ideal for{" "}
-          {locality.best_for?.join(", ")}. Whether you’re exploring events,
-          places, or everyday experiences, {locality.name} offers a mix of{" "}
-          {locality.vibe_tags?.join(", ")} experiences that make it one of the
-          key localities in Jaipur.
-        </p>
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {knownFor.length > 0 ? (
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  Known for
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {renderChipList(knownFor)}
+                </div>
+              </div>
+            ) : null}
+
+            {bestFor.length > 0 ? (
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  Best for
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {renderChipList(bestFor)}
+                </div>
+              </div>
+            ) : null}
+
+            {vibeTags.length > 0 ? (
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  Area vibe
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {renderChipList(vibeTags)}
+                </div>
+              </div>
+            ) : null}
+
+            {landmarks.length > 0 ? (
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  Key landmarks
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {renderChipList(landmarks)}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 lg:col-span-2">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {locality.name} inside the Jaipur locality graph
+          </h2>
+          <p className="mt-3 text-gray-700 leading-7">
+            {localityClusterDescription}
+          </p>
+
+          {comparisonPrompts.length > 0 ? (
+            <div className="mt-5 flex flex-wrap gap-3">
+              {comparisonPrompts.map((item, idx) => (
+                <a
+                  key={`${locality.slug}-prompt-${idx}`}
+                  href={item.href}
+                  className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  {item.label} →
+                </a>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-6">
+          <h2 className="text-xl font-semibold text-gray-900">
+            Locality cluster
+          </h2>
+          <p className="mt-3 text-sm text-gray-700">
+            {localityClusterLabel}
+          </p>
+          <p className="mt-3 text-sm text-gray-600">
+            This helps JaipurCircle connect {locality.name} to relevant nearby neighborhoods, comparison queries, and broader city discovery loops.
+          </p>
+        </div>
       </section>
 
+      <LocalityDifferentiation
+        name={locality.name}
+        bestFor={locality.best_for}
+        vibeTags={locality.vibe_tags}
+        knownFor={locality.known_for}
+      />
+
+      {normalizedNearby.length > 0 ? (
+        <section className="mt-8 rounded-2xl border border-gray-200 bg-white p-6">
+          <h2 className="text-xl font-semibold text-gray-900">
+            Compare {locality.name} with nearby Jaipur localities
+          </h2>
+          <p className="mt-2 text-sm text-gray-600">
+            {getNearbyLocalityComparisonIntro(locality.name)}
+          </p>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            {normalizedNearby.slice(0, 8).map((item, idx) => (
+              <a
+                key={`${locality.slug}-compare-${idx}`}
+                href={`/jaipur/${item.slug}`}
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Compare with {item.name} →
+              </a>
+            ))}
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {normalizedNearby.slice(0, 4).map((item, idx) => (
+              <a
+                key={`${locality.slug}-nearby-card-${idx}`}
+                href={`/jaipur/${item.slug}`}
+                className="rounded-2xl border border-gray-200 p-4 transition hover:shadow-sm"
+              >
+                <div className="text-sm text-gray-500">Nearby locality</div>
+                <div className="mt-1 font-semibold text-gray-900">
+                  {item.name}
+                </div>
+                <div className="mt-3 text-sm text-blue-600">
+                  Explore locality →
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="mt-10 rounded-2xl border border-gray-200 bg-white p-6">
+        <h2 className="text-xl font-semibold text-gray-900">
+          Explore {locality.name}
+        </h2>
+        <p className="mt-2 text-sm text-gray-600">
+          Use these locality discovery paths to browse structured JaipurCircle
+          content for this area.
+        </p>
+
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <a
+            href={`/jaipur/${locality.slug}/events`}
+            className="rounded-2xl border border-gray-200 p-4 transition hover:shadow-sm"
+          >
+            <div className="text-sm text-gray-500">Category Page</div>
+            <div className="mt-1 font-semibold text-gray-900">
+              Events in {locality.name}
+            </div>
+          </a>
+
+          <a
+            href={`/jaipur/${locality.slug}/news`}
+            className="rounded-2xl border border-gray-200 p-4 transition hover:shadow-sm"
+          >
+            <div className="text-sm text-gray-500">Category Page</div>
+            <div className="mt-1 font-semibold text-gray-900">
+              News in {locality.name}
+            </div>
+          </a>
+
+          <a
+            href={`/jaipur/${locality.slug}/shopping`}
+            className="rounded-2xl border border-gray-200 p-4 transition hover:shadow-sm"
+          >
+            <div className="text-sm text-gray-500">Category Page</div>
+            <div className="mt-1 font-semibold text-gray-900">
+              Shopping in {locality.name}
+            </div>
+          </a>
+
+          <a
+            href="/jaipur"
+            className="rounded-2xl border border-gray-200 p-4 transition hover:shadow-sm"
+          >
+            <div className="text-sm text-gray-500">Browse More</div>
+            <div className="mt-1 font-semibold text-gray-900">
+              All Jaipur localities
+            </div>
+          </a>
+        </div>
+      </section>
+
+      <section className="mt-12">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-semibold text-gray-900">
+              {primaryEventsSection.heading}
+            </h2>
+            <p className="mt-2 text-sm text-gray-600">
+              {primaryEventsSection.description}
+            </p>
+          </div>
+          <a
+            href={`/jaipur/${locality.slug}/events`}
+            className="text-sm font-medium text-blue-600"
+          >
+            View all →
+          </a>
+        </div>
+
+        {displayedUpcomingCount > 0 ? (
+          <LocalityEventGrid
+            title=""
+            description=""
+            events={displayedUpcomingEvents}
+            emptyText=""
+            currentLocalityId={locality.id}
+            currentLocalityName={locality.name}
+          />
+        ) : (
+          <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
+            <p>{primaryEventsSection.emptyText}</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a
+                href="/events"
+                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+              >
+                Explore all Jaipur events →
+              </a>
+              <a
+                href="/jaipur"
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Browse other Jaipur localities →
+              </a>
+            </div>
+          </div>
+        )}
+
+        {shouldShowFallbackEvents ? (
+          <div className="mt-10">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">
+                  {fallbackEventsSection.heading}
+                </h3>
+                <p className="mt-2 text-sm text-gray-600">
+                  {fallbackEventsSection.description}
+                </p>
+              </div>
+            </div>
+
+            <LocalityEventGrid
+              title=""
+              description=""
+              events={fallbackUpcomingEvents}
+              emptyText=""
+              currentLocalityId={locality.id}
+              currentLocalityName={locality.name}
+            />
+          </div>
+        ) : null}
+      </section>
+
+      <section className="mt-12">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-semibold text-gray-900">
+              {primaryArchiveSection.heading}
+            </h2>
+            <p className="mt-2 text-sm text-gray-600">
+              {primaryArchiveSection.description}
+            </p>
+          </div>
+        </div>
+
+        {displayedPastCount > 0 ? (
+          <LocalityEventGrid
+            title=""
+            description=""
+            events={displayedPastEvents}
+            emptyText=""
+            currentLocalityId={locality.id}
+            currentLocalityName={locality.name}
+          />
+        ) : (
+          <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
+            <p>{primaryArchiveSection.emptyText}</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a
+                href={`/jaipur/${locality.slug}/events`}
+                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+              >
+                Check locality events →
+              </a>
+              <a
+                href="/events"
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Explore Jaipur event archive →
+              </a>
+            </div>
+          </div>
+        )}
+
+        {shouldShowArchiveFallback ? (
+          <div className="mt-10">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">
+                  {archiveFallbackSection.heading}
+                </h3>
+                <p className="mt-2 text-sm text-gray-600">
+                  {archiveFallbackSection.description}
+                </p>
+              </div>
+            </div>
+
+            <LocalityEventGrid
+              title=""
+              description=""
+              events={fallbackPastEvents}
+              emptyText=""
+              currentLocalityId={locality.id}
+              currentLocalityName={locality.name}
+            />
+          </div>
+        ) : null}
+      </section>
+
+      <section className="mt-12">
+        <h2 className="text-xl font-semibold">{primaryVenuesSection.heading}</h2>
+        <p className="mt-2 text-sm text-gray-600">{primaryVenuesSection.description}</p>
+
+        {displayedVenueCount > 0 ? (
+          <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {displayedVenueItems.map((venue: any) => (
+              <a
+                key={venue.id}
+                href={`/venues/${venue.slug}`}
+                className="block rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+              >
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {venue.name}
+                </h3>
+                <p className="mt-2 line-clamp-3 text-sm text-gray-600">
+                  {venue.description ||
+                    venue.seo_blurb ||
+                    `${venue.name} is a venue connected to ${locality.name}, Jaipur.`}
+                </p>
+                <div className="mt-4 text-sm font-medium text-blue-600">
+                  View venue page →
+                </div>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
+            <p>{primaryVenuesSection.emptyText}</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <a
+                href="/venues"
+                className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 hover:bg-blue-100"
+              >
+                Explore Jaipur venues →
+              </a>
+              <a
+                href="/jaipur"
+                className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Browse other localities →
+              </a>
+            </div>
+          </div>
+        )}
+
+        {shouldShowFallbackVenues ? (
+          <div className="mt-10">
+            <h3 className="text-xl font-semibold text-gray-900">
+              {fallbackVenuesSection.heading}
+            </h3>
+            <p className="mt-2 text-sm text-gray-600">
+              {fallbackVenuesSection.description}
+            </p>
+
+            <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {fallbackVenues.map((venue: any) => (
+                <a
+                  key={venue.id}
+                  href={`/venues/${venue.slug}`}
+                  className="block rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+                >
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {venue.name}
+                  </h3>
+                  <p className="mt-2 line-clamp-3 text-sm text-gray-600">
+                    {venue.description ||
+                      venue.seo_blurb ||
+                      `${venue.name} is a nearby or supporting venue relevant to ${locality.name}, Jaipur.`}
+                  </p>
+                  <div className="mt-4 text-sm font-medium text-blue-600">
+                    View venue page →
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <CivicFacts
+        name={locality.name}
+        zone={locality.zone}
+        municipality={locality.municipality}
+        pincode={locality.pincode}
+        policeStation={locality.police_station}
+      />
+
+      <NearbyLocalities
+        currentSlug={locality.slug}
+        nearbyLocalities={locality.nearby_localities}
+      />
+
+      <LocalityIntentMatrix name={locality.name} slug={locality.slug} />
+
+      <LocalityFAQ
+        name={locality.name}
+        zone={locality.zone}
+        municipality={locality.municipality}
+      />
     </main>
   );
 }
