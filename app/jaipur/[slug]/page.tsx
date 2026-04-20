@@ -16,6 +16,18 @@ export const dynamic = "force-dynamic";
 
 type LocalityTier = "strong" | "developing" | "thin";
 
+type EventsSectionCopy = {
+  heading: string;
+  description: string;
+  emptyText: string;
+};
+
+type VenuesSectionCopy = {
+  heading: string;
+  description: string;
+  emptyText: string;
+};
+
 export async function generateMetadata(
   props: { params: Promise<{ slug: string }> }
 ) {
@@ -60,6 +72,43 @@ function countItems(items: any[] | null | undefined) {
   return Array.isArray(items) ? items.length : 0;
 }
 
+function normalizeSlugText(value?: string | null) {
+  return String(value || "")
+    .replace(/-/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function eventMatchesLocality(event: any, locality: any) {
+  if (!event || !locality) return false;
+  if (event?.locality_id && event.locality_id === locality.id) return true;
+
+  const eventLocality = normalizeSlugText(event?.locality);
+  const localitySlug = normalizeSlugText(locality?.slug);
+  const localityName = normalizeSlugText(locality?.name);
+
+  return !!eventLocality && (eventLocality === localitySlug || eventLocality === localityName);
+}
+
+function venueMatchesLocality(venue: any, locality: any) {
+  if (!venue || !locality) return false;
+  return !!venue?.locality_id && venue.locality_id === locality.id;
+}
+
+function dedupeById(items: any[] | null | undefined) {
+  const seen = new Set<string>();
+  const out: any[] = [];
+
+  for (const item of items || []) {
+    const id = item?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(item);
+  }
+
+  return out;
+}
+
 function deriveLocalityTier({
   exactUpcomingCount,
   pastCount,
@@ -91,7 +140,7 @@ function getTierLabel(tier: LocalityTier) {
   return "Coverage Seed";
 }
 
-function getEventsSectionCopy({
+function getPrimaryEventsSectionCopy({
   tier,
   localityName,
   exactUpcomingCount,
@@ -99,7 +148,7 @@ function getEventsSectionCopy({
   tier: LocalityTier;
   localityName: string;
   exactUpcomingCount: number;
-}) {
+}): EventsSectionCopy {
   if (tier === "strong") {
     return {
       heading: `Upcoming events in ${localityName}`,
@@ -110,12 +159,18 @@ function getEventsSectionCopy({
 
   if (tier === "developing") {
     return {
-      heading: `Popular upcoming events near ${localityName}`,
+      heading:
+        exactUpcomingCount > 0
+          ? `Upcoming events in ${localityName}`
+          : `Popular upcoming events near ${localityName}`,
       description:
         exactUpcomingCount > 0
-          ? `${localityName} already has some exact event coverage, and this section also expands discovery with nearby relevant Jaipur events.`
+          ? `${localityName} already has exact event coverage, and JaipurCircle will keep strengthening this locality’s own event graph over time.`
           : `There may not be enough exact locality-tagged events yet, so this section shows relevant upcoming Jaipur events around and beyond ${localityName}.`,
-      emptyText: `No relevant upcoming events were found near ${localityName} right now.`,
+      emptyText:
+        exactUpcomingCount > 0
+          ? `No upcoming events are currently linked to ${localityName}.`
+          : `No relevant upcoming events were found near ${localityName} right now.`,
     };
   }
 
@@ -126,7 +181,15 @@ function getEventsSectionCopy({
   };
 }
 
-function getVenuesSectionCopy({
+function getFallbackEventsSectionCopy(localityName: string): EventsSectionCopy {
+  return {
+    heading: `More events around ${localityName}`,
+    description: `These are relevant nearby or broader Jaipur events that complement the exact locality feed for ${localityName}.`,
+    emptyText: `No additional nearby events are available around ${localityName} right now.`,
+  };
+}
+
+function getPrimaryVenuesSectionCopy({
   tier,
   localityName,
   exactVenueCount,
@@ -134,22 +197,35 @@ function getVenuesSectionCopy({
   tier: LocalityTier;
   localityName: string;
   exactVenueCount: number;
-}) {
+}): VenuesSectionCopy {
   if (tier === "strong") {
+    if (exactVenueCount > 0) {
+      return {
+        heading: `Popular venues in ${localityName}`,
+        description: `Explore venues directly connected to this locality and use them as discovery hubs for events in Jaipur.`,
+        emptyText: `No exact venue cluster is available for ${localityName} yet.`,
+      };
+    }
+
     return {
-      heading: `Popular venues in ${localityName}`,
-      description: `Explore venues connected to this locality and use them as discovery hubs for events in Jaipur.`,
-      emptyText: `No venue cluster is available for ${localityName} yet.`,
+      heading: `Popular venues around ${localityName}`,
+      description: `${localityName} already has strong event coverage, but exact venue mapping is still catching up. For now, JaipurCircle shows nearby and supporting venue discovery.`,
+      emptyText: `No nearby venue discovery is available around ${localityName} yet.`,
     };
   }
 
   if (tier === "developing") {
+    if (exactVenueCount > 0) {
+      return {
+        heading: `Popular venues in ${localityName}`,
+        description: `Explore venues connected to this locality and use them as discovery hubs for events in Jaipur.`,
+        emptyText: `No exact venue cluster is available for ${localityName} yet.`,
+      };
+    }
+
     return {
       heading: `Popular venues around ${localityName}`,
-      description:
-        exactVenueCount > 0
-          ? `${localityName} already has some exact venue coverage, and this section expands the cluster with nearby useful venue discovery.`
-          : `Exact venue coverage for ${localityName} is still growing, so this section shows nearby or broader Jaipur venue discovery.`,
+      description: `Exact venue coverage for ${localityName} is still growing, so this section shows nearby or broader Jaipur venue discovery.`,
       emptyText: `No useful venue cluster is available around ${localityName} yet.`,
     };
   }
@@ -161,22 +237,24 @@ function getVenuesSectionCopy({
   };
 }
 
+function getFallbackVenuesSectionCopy(localityName: string): VenuesSectionCopy {
+  return {
+    heading: `More venues around ${localityName}`,
+    description: `These supporting venues help extend discovery beyond the exact venue graph for ${localityName}.`,
+    emptyText: `No additional nearby venues are available around ${localityName} right now.`,
+  };
+}
+
 function getLocalityAuthorityIntro({
   tier,
   localityName,
   zone,
   municipality,
-  exactUpcomingCount,
-  exactVenueCount,
-  pastCount,
 }: {
   tier: LocalityTier;
   localityName: string;
   zone?: string | null;
   municipality?: string | null;
-  exactUpcomingCount: number;
-  exactVenueCount: number;
-  pastCount: number;
 }) {
   const civicContext =
     zone || municipality
@@ -186,7 +264,7 @@ function getLocalityAuthorityIntro({
       : "";
 
   if (tier === "strong") {
-    return `${localityName} is now one of JaipurCircle’s strongest locality hubs, with meaningful exact event coverage, venue depth, and visible event memory.${civicContext} This page is intended to function as a reliable discovery hub for what is happening in and around ${localityName}, while also helping users navigate related venues, nearby localities, and recurring Jaipur activity.`;
+    return `${localityName} is now one of JaipurCircle’s strongest locality hubs, with meaningful exact event coverage, venue depth, and visible event memory.${civicContext} This page is designed to function as a reliable discovery hub for what is happening in and around ${localityName}, while also helping users navigate related venues, nearby localities, and recurring Jaipur activity.`;
   }
 
   if (tier === "developing") {
@@ -275,16 +353,16 @@ export default async function LocalityPage({
   if (!locality || error || !locality.should_index) return notFound();
 
   const [
-    upcomingEvents,
+    upcomingEventsRaw,
     pastEvents,
-    venues,
+    venuesRaw,
     exactUpcomingCountRes,
     exactVenueCountRes,
   ] = await Promise.all([
     getUpcomingEventsForLocality(supabase, {
       localityId: locality.id,
       localitySlug: locality.slug,
-      limit: 6,
+      limit: 12,
     }),
     getPastEventsForLocality(supabase, {
       localityId: locality.id,
@@ -293,7 +371,7 @@ export default async function LocalityPage({
     getVenuesForLocality(supabase, {
       localityId: locality.id,
       localitySlug: locality.slug,
-      limit: 6,
+      limit: 12,
     }),
     supabase
       .from("events")
@@ -309,39 +387,64 @@ export default async function LocalityPage({
       .eq("locality_id", locality.id),
   ]);
 
-  const displayedUpcomingCount = countItems(upcomingEvents);
-  const displayedPastCount = countItems(pastEvents);
-  const displayedVenueCount = countItems(venues);
-
   const exactUpcomingCount = exactUpcomingCountRes.count || 0;
   const exactVenueCount = exactVenueCountRes.count || 0;
 
   const tier = deriveLocalityTier({
     exactUpcomingCount,
-    pastCount: displayedPastCount,
+    pastCount: countItems(pastEvents),
     exactVenueCount,
   });
 
-  const eventsSection = getEventsSectionCopy({
+  const exactUpcomingEvents = dedupeById(
+    (upcomingEventsRaw || []).filter((event: any) => eventMatchesLocality(event, locality))
+  ).slice(0, 6);
+
+  const fallbackUpcomingEvents = dedupeById(
+    (upcomingEventsRaw || []).filter((event: any) => !eventMatchesLocality(event, locality))
+  ).slice(0, 6);
+
+  const exactVenues = dedupeById(
+    (venuesRaw || []).filter((venue: any) => venueMatchesLocality(venue, locality))
+  ).slice(0, 6);
+
+  const fallbackVenues = dedupeById(
+    (venuesRaw || []).filter((venue: any) => !venueMatchesLocality(venue, locality))
+  ).slice(0, 6);
+
+  const displayedUpcomingEvents =
+    exactUpcomingEvents.length > 0
+      ? exactUpcomingEvents
+      : fallbackUpcomingEvents.slice(0, 6);
+
+  const displayedVenueItems =
+    exactVenues.length > 0 ? exactVenues : fallbackVenues.slice(0, 6);
+
+  const displayedUpcomingCount = countItems(displayedUpcomingEvents);
+  const displayedPastCount = countItems(pastEvents);
+  const displayedVenueCount = countItems(displayedVenueItems);
+
+  const primaryEventsSection = getPrimaryEventsSectionCopy({
     tier,
     localityName: locality.name,
     exactUpcomingCount,
   });
 
-  const venuesSection = getVenuesSectionCopy({
+  const fallbackEventsSection = getFallbackEventsSectionCopy(locality.name);
+
+  const primaryVenuesSection = getPrimaryVenuesSectionCopy({
     tier,
     localityName: locality.name,
     exactVenueCount,
   });
+
+  const fallbackVenuesSection = getFallbackVenuesSectionCopy(locality.name);
 
   const authorityIntro = getLocalityAuthorityIntro({
     tier,
     localityName: locality.name,
     zone: locality.zone,
     municipality: locality.municipality,
-    exactUpcomingCount,
-    exactVenueCount,
-    pastCount: displayedPastCount,
   });
 
   const authorityHighlights = getAuthorityHighlights({
@@ -365,6 +468,16 @@ export default async function LocalityPage({
     locality.description ||
     locality.seo_blurb ||
     `${locality.name} is one of Jaipur’s important localities. Explore what is happening here, discover venues, and browse upcoming and past events connected to this area.`;
+
+  const shouldShowFallbackEvents =
+    exactUpcomingEvents.length > 0 &&
+    fallbackUpcomingEvents.length > 0 &&
+    tier !== "thin";
+
+  const shouldShowFallbackVenues =
+    exactVenues.length > 0 &&
+    fallbackVenues.length > 0 &&
+    tier !== "thin";
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-10">
@@ -412,6 +525,9 @@ export default async function LocalityPage({
           </span>
           <span className="rounded-full bg-gray-100 px-4 py-2">
             Exact Local Venues: {exactVenueCount}
+          </span>
+          <span className="rounded-full bg-gray-100 px-4 py-2">
+            Displayed Venues: {displayedVenueCount}
           </span>
         </div>
 
@@ -485,6 +601,10 @@ export default async function LocalityPage({
               <span className="text-right font-medium">
                 {displayedPastCount}
               </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-500">Exact venues</span>
+              <span className="text-right font-medium">{exactVenueCount}</span>
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-gray-500">Displayed venues</span>
@@ -587,10 +707,10 @@ export default async function LocalityPage({
         <div className="flex items-end justify-between gap-4">
           <div>
             <h2 className="text-2xl font-semibold text-gray-900">
-              {eventsSection.heading}
+              {primaryEventsSection.heading}
             </h2>
             <p className="mt-2 text-sm text-gray-600">
-              {eventsSection.description}
+              {primaryEventsSection.description}
             </p>
           </div>
           <a
@@ -605,14 +725,14 @@ export default async function LocalityPage({
           <LocalityEventGrid
             title=""
             description=""
-            events={upcomingEvents}
+            events={displayedUpcomingEvents}
             emptyText=""
             currentLocalityId={locality.id}
             currentLocalityName={locality.name}
           />
         ) : (
           <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-            <p>{eventsSection.emptyText}</p>
+            <p>{primaryEventsSection.emptyText}</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <a
                 href="/events"
@@ -629,6 +749,30 @@ export default async function LocalityPage({
             </div>
           </div>
         )}
+
+        {shouldShowFallbackEvents ? (
+          <div className="mt-10">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">
+                  {fallbackEventsSection.heading}
+                </h3>
+                <p className="mt-2 text-sm text-gray-600">
+                  {fallbackEventsSection.description}
+                </p>
+              </div>
+            </div>
+
+            <LocalityEventGrid
+              title=""
+              description=""
+              events={fallbackUpcomingEvents}
+              emptyText=""
+              currentLocalityId={locality.id}
+              currentLocalityName={locality.name}
+            />
+          </div>
+        ) : null}
       </section>
 
       <section className="mt-12">
@@ -675,12 +819,12 @@ export default async function LocalityPage({
       </section>
 
       <section className="mt-12">
-        <h2 className="text-xl font-semibold">{venuesSection.heading}</h2>
-        <p className="mt-2 text-sm text-gray-600">{venuesSection.description}</p>
+        <h2 className="text-xl font-semibold">{primaryVenuesSection.heading}</h2>
+        <p className="mt-2 text-sm text-gray-600">{primaryVenuesSection.description}</p>
 
         {displayedVenueCount > 0 ? (
           <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-            {venues.map((venue: any) => (
+            {displayedVenueItems.map((venue: any) => (
               <a
                 key={venue.id}
                 href={`/venues/${venue.slug}`}
@@ -702,7 +846,7 @@ export default async function LocalityPage({
           </div>
         ) : (
           <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-            <p>{venuesSection.emptyText}</p>
+            <p>{primaryVenuesSection.emptyText}</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <a
                 href="/venues"
@@ -719,6 +863,39 @@ export default async function LocalityPage({
             </div>
           </div>
         )}
+
+        {shouldShowFallbackVenues ? (
+          <div className="mt-10">
+            <h3 className="text-xl font-semibold text-gray-900">
+              {fallbackVenuesSection.heading}
+            </h3>
+            <p className="mt-2 text-sm text-gray-600">
+              {fallbackVenuesSection.description}
+            </p>
+
+            <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {fallbackVenues.map((venue: any) => (
+                <a
+                  key={venue.id}
+                  href={`/venues/${venue.slug}`}
+                  className="block rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+                >
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {venue.name}
+                  </h3>
+                  <p className="mt-2 line-clamp-3 text-sm text-gray-600">
+                    {venue.description ||
+                      venue.seo_blurb ||
+                      `${venue.name} is a nearby or supporting venue relevant to ${locality.name}, Jaipur.`}
+                  </p>
+                  <div className="mt-4 text-sm font-medium text-blue-600">
+                    View venue page →
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <CivicFacts
