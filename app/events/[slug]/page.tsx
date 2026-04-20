@@ -560,6 +560,3 @@ export default async function EventPage({
     </main>
   );
 }
-EOF
-
-npm run build
